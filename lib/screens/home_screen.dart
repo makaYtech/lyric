@@ -6,6 +6,7 @@ import '../services/auth_service.dart';
 import '../widgets/auth/reauth_sheet.dart';
 import 'grades_view.dart';
 import 'home_controller.dart';
+import 'homework_view.dart';
 import 'profile_view.dart';
 import 'reauth_screen.dart';
 import 'schedule_view.dart';
@@ -125,9 +126,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Обёртка над onRefresh для вкладок: если нужна переавторизация —
-  /// ничего не делаем (иконка в баре уже предлагает войти), иначе
-  /// делегируем в контроллер.
   Future<void> _guardedRefresh(Future<void> Function() fn) async {
     if (_session.needsAuth) return;
     await fn();
@@ -147,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(title, key: ValueKey(_controller.tabIndex)),
             ),
             actions: [
-              if (_controller.tabIndex == 1 &&
+              if ((_controller.tabIndex == 1 || _controller.tabIndex == 3) &&
                   (_controller.years?.isNotEmpty ?? false))
                 _YearMenu(controller: _controller),
               IconButton(
@@ -182,6 +180,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 onWeekChanged: _controller.changeWeek,
                 onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
               ),
+              HomeworkView(
+                homeworks: _controller.homeworks,
+                isLoading: _controller.homeworksLoading,
+                error: _controller.homeworksErrorForView,
+                isActive: _controller.tabIndex == 3,
+                onRefresh: () => _guardedRefresh(_controller.refreshHomeworks),
+              ),
             ],
           ),
           bottomNavigationBar: _BottomBar(
@@ -202,8 +207,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// Нижний бар: табы + кнопка. Когда нужна переавторизация, кнопка
-/// превращается в «войти», а не «обновить».
 class _BottomBar extends StatelessWidget {
   final HomeController controller;
   final bool needsAuth;
@@ -236,11 +239,21 @@ class _BottomBar extends StatelessWidget {
                 selectedIndex: controller.tabIndex,
                 onDestinationSelected: onTabSelected,
                 destinations: const [
-                  NavigationDestination(icon: Icon(Icons.person), label: 'Профиль'),
-                  NavigationDestination(icon: Icon(Icons.grade), label: 'Оценки'),
+                  NavigationDestination(
+                    icon: Icon(Icons.person),
+                    label: 'Профиль',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.grade),
+                    label: 'Оценки',
+                  ),
                   NavigationDestination(
                     icon: Icon(Icons.calendar_today_outlined),
                     label: 'Расписание',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.book_outlined),
+                    label: 'ДЗ',
                   ),
                 ],
               ),

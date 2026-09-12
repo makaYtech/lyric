@@ -5,11 +5,13 @@ import '../core/cache/cache_service.dart';
 import '../core/settings/schedule_prefs.dart';
 import '../models/academic_year.dart';
 import '../models/day_schedule.dart';
+import '../models/homework.dart';
 import '../models/mark.dart';
 import '../models/student_profile.dart';
 import '../models/subject_grade.dart';
 import '../repositories/academic_years_repository.dart';
 import '../repositories/grades_repository.dart';
+import '../repositories/homework_repository.dart';
 import '../repositories/marks_repository.dart';
 import '../repositories/profile_repository.dart';
 import '../repositories/schedule_repository.dart';
@@ -17,6 +19,7 @@ import '../repositories/student_groups_repository.dart';
 import '../services/auth_service.dart';
 import '../services/session_expired_exception.dart';
 import '../core/auth/token_storage.dart';
+import '../core/settings/homework_prefs.dart';
 
 class HomeController extends ChangeNotifier {
   HomeController({
@@ -28,6 +31,7 @@ class HomeController extends ChangeNotifier {
     ScheduleRepository? scheduleRepository,
     StudentGroupsRepository? groupsRepository,
     MarksRepository? marksRepository,
+    HomeworkRepository? homeworkRepository,
     CacheService? cache,
   })  : _tokens = tokens,
         _onError = onError,
@@ -37,6 +41,7 @@ class HomeController extends ChangeNotifier {
         _scheduleRepository = scheduleRepository ?? ScheduleRepository(),
         _groupsRepository = groupsRepository ?? StudentGroupsRepository(),
         _marksRepository = marksRepository ?? MarksRepository(),
+        _homeworkRepository = homeworkRepository ?? HomeworkRepository(),
         _cache = cache ?? CacheService() {
     _weekStart = _currentMonday();
   }
@@ -52,13 +57,14 @@ class HomeController extends ChangeNotifier {
   final ScheduleRepository _scheduleRepository;
   final StudentGroupsRepository _groupsRepository;
   final MarksRepository _marksRepository;
+  final HomeworkRepository _homeworkRepository;
   final CacheService _cache;
   final TokenStorage _tokenStorage = TokenStorage();
 
   static const _selectedYearKey = 'selected_academic_year_id';
   static const _fallbackYearId = 14;
 
-  static const titles = ['Профиль', 'Оценки', 'Расписание'];
+  static const titles = ['Профиль', 'Оценки', 'Расписание', 'ДЗ'];
 
   bool _disposed = false;
 
@@ -104,6 +110,17 @@ class HomeController extends ChangeNotifier {
   List<Mark>? _marks;
   List<Mark>? get marks => _marks;
 
+  /// ДЗ за учебный год. В БД — целиком по году, в UI — группируется
+  /// по датам. Оффлайн подтягивается из HomeworkDao.
+  List<Homework>? _homeworks;
+  List<Homework>? get homeworks => _homeworks;
+  DateTime? _homeworksUpdated;
+  DateTime? get homeworksUpdated => _homeworksUpdated;
+  bool _homeworksLoading = true;
+  bool get homeworksLoading => _homeworksLoading;
+  String? _homeworksError;
+  String? get homeworksError => _homeworksError;
+
   late DateTime _weekStart;
   DateTime get weekStart => _weekStart;
 
@@ -115,6 +132,7 @@ class HomeController extends ChangeNotifier {
     0 => _profileLoading,
     1 => _gradesLoading,
     2 => _scheduleLoading,
+    3 => _homeworksLoading,
     _ => false,
   };
 
@@ -123,12 +141,15 @@ class HomeController extends ChangeNotifier {
       (_grades == null || _grades!.isEmpty) ? _gradesError : null;
   String? get scheduleErrorForView =>
       (_schedule == null || _schedule!.isEmpty) ? _scheduleError : null;
+  String? get homeworksErrorForView =>
+      (_homeworks == null || _homeworks!.isEmpty) ? _homeworksError : null;
 
   // ── Жизненный цикл ─────────────────────────────────────────────────────
 
   Future<void> init() async {
     await _tokenStorage.save(_tokens);
     await SchedulePrefs.load();
+    await HomeworkPrefs.load();
     await _loadCachedAll();
     await refreshAll();
   }
@@ -159,11 +180,6 @@ class HomeController extends ChangeNotifier {
 
   // ── Кэш ────────────────────────────────────────────────────────────────
 
-  /// Загружает всё, что есть в локальном кэше, ДО первого сетевого запроса.
-  /// Два независимых «слоя»: сначала всё, что не зависит от выбранного
-  /// учебного года, потом — то, что зависит. Внутри каждого слоя фьючи
-  /// стартуют параллельно: запросы в SharedPreferences/SQLite не мешают
-  /// друг другу, а последовательный await заметно тормозит холодный старт.
   Future<void> _loadCachedAll() async {
     final profileFut = _profileRepository.loadCached();
     final profileUpdFut = _profileRepository.lastUpdated();
@@ -186,12 +202,16 @@ class HomeController extends ChangeNotifier {
     final scheduleUpdFut =
     _scheduleRepository.lastUpdated(_weekStart, yearId);
     final marksFut = _marksRepository.loadCached(yearId, _weekStart);
+    final homeworksFut = _homeworkRepository.loadCached(yearId);
+    final homeworksUpdFut = _homeworkRepository.lastUpdated(yearId);
 
     final grades = await gradesFut;
     final gradesUpdated = await gradesUpdFut;
     final schedule = await scheduleFut;
     final scheduleUpdated = await scheduleUpdFut;
     final marks = await marksFut;
+    final homeworks = await homeworksFut;
+    final homeworksUpdated = await homeworksUpdFut;
 
     if (_disposed) return;
     _profile = profile;
@@ -204,6 +224,8 @@ class HomeController extends ChangeNotifier {
     _schedule = schedule;
     _scheduleUpdated = scheduleUpdated;
     _marks = marks.isEmpty ? null : marks;
+    _homeworks = homeworks;
+    _homeworksUpdated = homeworksUpdated;
     _notify();
   }
 
@@ -217,9 +239,6 @@ class HomeController extends ChangeNotifier {
 
   // ── Обновления ─────────────────────────────────────────────────────────
 
-  /// Общий каркас refresh-методов: loading → error=null → try/catch/finally.
-  /// Раньше это было скопировано в трёх местах, и в каждом легко было
-  /// забыть какую-то ветку. Здесь — один источник правды.
   Future<void> _runRefresh({
     required void Function(bool) setLoading,
     required void Function(String?) setError,
@@ -251,6 +270,7 @@ class HomeController extends ChangeNotifier {
     _refreshYears(),
     refreshGrades(),
     refreshSchedule(),
+    refreshHomeworks(),
   ]);
 
   Future<void> refreshCurrentTab() {
@@ -261,6 +281,8 @@ class HomeController extends ChangeNotifier {
         return refreshGrades();
       case 2:
         return refreshSchedule();
+      case 3:
+        return refreshHomeworks();
       default:
         return Future.value();
     }
@@ -323,9 +345,6 @@ class HomeController extends ChangeNotifier {
       if (_disposed) return;
       _groupIds = groups.map((g) => g.id).toList();
     } on SessionExpiredException {
-      // Пусть refreshSchedule сам разберётся — не выдаём «не удалось
-      // получить группы», когда настоящая причина — мёртвая сессия.
-      // SessionNotifier уже покажет модалку.
       SessionNotifier.instance.markExpired();
       rethrow;
     } catch (_) {
@@ -374,6 +393,33 @@ class HomeController extends ChangeNotifier {
     silent: silent,
   );
 
+  Future<void> refreshHomeworks({bool silent = false}) => _runRefresh(
+    setLoading: (v) => _homeworksLoading = v,
+    setError: (e) => _homeworksError = e,
+    body: () async {
+      final range = _academicYearRange(DateTime.now());
+      final homeworks = await _homeworkRepository.refresh(
+        _tokens,
+        _selectedYearId,
+        from: range.$1,
+        to: range.$2,
+      );
+      final updated = await _homeworkRepository.lastUpdated(_selectedYearId);
+      if (_disposed) return;
+      _homeworks = homeworks;
+      _homeworksUpdated = updated;
+    },
+    errorToast: 'Не удалось обновить ДЗ',
+    silent: silent,
+  );
+
+  /// Границы учебного года для запроса ДЗ: сентябрь текущего (или
+  /// прошлого, если сейчас ещё лето) .. август следующего.
+  static (DateTime, DateTime) _academicYearRange(DateTime today) {
+    final year = today.month >= 9 ? today.year : today.year - 1;
+    return (DateTime(year, 9, 1), DateTime(year + 1, 8, 31));
+  }
+
   // ── Смена недели/года ──────────────────────────────────────────────────
 
   Future<void> changeWeek(DateTime newMonday) async {
@@ -403,18 +449,25 @@ class HomeController extends ChangeNotifier {
     _selectedYearId = yearId;
     _grades = null;
     _gradesUpdated = null;
+    _homeworks = null;
+    _homeworksUpdated = null;
     _notify();
 
     await _cache.saveInt(_selectedYearKey, yearId);
 
-    final cached = await _gradesRepository.loadCached(yearId);
-    final updated = await _gradesRepository.lastUpdated(yearId);
+    final cachedGrades = await _gradesRepository.loadCached(yearId);
+    final updatedGrades = await _gradesRepository.lastUpdated(yearId);
+    final cachedHw = await _homeworkRepository.loadCached(yearId);
+    final updatedHw = await _homeworkRepository.lastUpdated(yearId);
     if (_disposed) return;
-    _grades = cached;
-    _gradesUpdated = updated;
+    _grades = cachedGrades;
+    _gradesUpdated = updatedGrades;
+    _homeworks = cachedHw;
+    _homeworksUpdated = updatedHw;
     _notify();
 
     await refreshGrades(silent: true);
+    await refreshHomeworks(silent: true);
   }
 
   static DateTime _currentMonday() {

@@ -16,14 +16,26 @@ class LessonCard extends StatelessWidget {
   });
 
   Future<void> _openDetails(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
     return showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       useSafeArea: true,
-      constraints: BoxConstraints(minWidth: width, maxWidth: width),
-      builder: (_) => LessonDetailsSheet(lesson: lesson),
+      builder: (_) => DraggableScrollableSheet(
+        // Стартуем в половине экрана, минимум — 0.3 (чтобы не схлопнуть
+        // в полоску), максимум — во весь экран. snap даёт «прыжок»
+        // между 0.5 и 1.0 при отпускании, как в типичных шторках.
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 1.0,
+        snap: true,
+        snapSizes: const [0.5, 1.0],
+        expand: false,
+        builder: (context, scrollController) => LessonDetailsSheet(
+          lesson: lesson,
+          scrollController: scrollController,
+        ),
+      ),
     );
   }
 
