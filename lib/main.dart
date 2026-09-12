@@ -1,18 +1,34 @@
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+
+import 'core/auth/token_storage.dart';
 import 'core/theme/theme_controller.dart';
+import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'services/auth_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final themeController = await ThemeController.load();
-  runApp(EposApp(themeController: themeController));
+  // Токены могли остаться с прошлого запуска. Если есть — сразу Home,
+  // никакого WebView: если сервер скажет «сессия истекла», SessionNotifier
+  // сам выкатит модалку с re-auth.
+  final initialTokens = await TokenStorage().load();
+  runApp(EposApp(
+    themeController: themeController,
+    initialTokens: initialTokens,
+  ));
 }
 
 class EposApp extends StatelessWidget {
   final ThemeController themeController;
+  final EposTokens? initialTokens;
 
-  const EposApp({super.key, required this.themeController});
+  const EposApp({
+    super.key,
+    required this.themeController,
+    required this.initialTokens,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -30,8 +46,8 @@ class EposApp extends StatelessWidget {
               themeMode: themeController.mode,
               theme: ThemeData(
                 useMaterial3: true,
-                colorScheme:
-                    lightDynamic ?? ColorScheme.fromSeed(seedColor: Colors.indigo),
+                colorScheme: lightDynamic ??
+                    ColorScheme.fromSeed(seedColor: Colors.indigo),
               ),
               darkTheme: ThemeData(
                 useMaterial3: true,
@@ -42,7 +58,12 @@ class EposApp extends StatelessWidget {
                       brightness: Brightness.dark,
                     ),
               ),
-              home: LoginScreen(themeController: themeController),
+              home: initialTokens == null
+                  ? LoginScreen(themeController: themeController)
+                  : HomeScreen(
+                tokens: initialTokens!,
+                themeController: themeController,
+              ),
             );
           },
         );

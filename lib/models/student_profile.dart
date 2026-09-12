@@ -15,38 +15,41 @@ class StudentProfile {
   });
 
   factory StudentProfile.fromJson(Map<String, dynamic> json) {
-    print('KEYS: ${json.keys.toList()}');
-    print('PROFILES: ${json['profiles']}');
     final classUnit = json['class_unit'] as Map<String, dynamic>?;
     final curricula = json['curricula'] as Map<String, dynamic>?;
-    final profiles = json['profiles'] as List<dynamic>? ?? [];
-    final direct = json['school_names'];
-    final List<String> schoolNames;
-    if (direct is List) {
-      schoolNames = direct.whereType<String>().toList();
-    } else {
-      final profiles = json['profiles'] as List<dynamic>? ?? [];
-      schoolNames = profiles
-          .whereType<Map<String, dynamic>>()
-          .map((p) => p['school_shortname'] as String?)
-          .whereType<String>()
-          .toSet()
-          .toList();
-    }
+
     return StudentProfile(
-      schoolNames: schoolNames,
+      schoolNames: _extractSchoolNames(json),
       userName: json['user_name'] as String? ?? '—',
       className: classUnit?['name'] as String? ?? '—',
       curriculumName: curricula?['name'] as String? ?? '—',
     );
   }
 
+  /// Список школ может прийти двумя путями:
+  /// - напрямую как `school_names` (наш собственный формат — в т.ч. в кэше);
+  /// - внутри `profiles[].school_shortname` (ответ /acl/api/users).
+  static List<String> _extractSchoolNames(Map<String, dynamic> json) {
+    final direct = json['school_names'];
+    if (direct is List) {
+      return direct.whereType<String>().toList();
+    }
+    final profiles = json['profiles'];
+    if (profiles is! List) return const [];
+    return profiles
+        .whereType<Map<String, dynamic>>()
+        .map((p) => p['school_shortname'])
+        .whereType<String>()
+        .toSet()
+        .toList();
+  }
+
   /// Упрощённая форма для кэша — не полный ответ API, а только то,
   /// что реально показываем (полный ответ хранить в кэше избыточно).
   Map<String, dynamic> toJson() => {
-        'school_names': schoolNames,
-        'user_name': userName,
-        'class_unit': {'name': className},
-        'curricula': {'name': curriculumName},
-      };
+    'school_names': schoolNames,
+    'user_name': userName,
+    'class_unit': {'name': className},
+    'curricula': {'name': curriculumName},
+  };
 }

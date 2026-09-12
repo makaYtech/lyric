@@ -1,22 +1,16 @@
 import 'package:flutter/material.dart';
-import '../core/cache/cache_service.dart';
+
+import '../core/auth/session_notifier.dart';
 import '../core/theme/theme_controller.dart';
-import '../models/academic_year.dart';
-import '../models/student_profile.dart';
-import '../models/subject_grade.dart';
-import '../repositories/academic_years_repository.dart';
-import '../repositories/grades_repository.dart';
-import '../repositories/profile_repository.dart';
 import '../services/auth_service.dart';
-import '../widgets/global_refresh_bar.dart';
+import '../widgets/auth/reauth_sheet.dart';
 import 'grades_view.dart';
+import 'home_controller.dart';
 import 'profile_view.dart';
+import 'reauth_screen.dart';
+import 'schedule_view.dart';
 import 'settings_screen.dart';
 
-/// Владеет данными и состоянием ОБЕИХ вкладок — это нужно, чтобы кнопка
-/// "Обновить всё" могла дёрнуть оба репозитория разом, а не только тот,
-/// что видно на экране прямо сейчас. Сами экраны (ProfileView/GradesView)
-/// не знают про сеть и кэш вообще — только отображают то, что им передали.
 class HomeScreen extends StatefulWidget {
   final EposTokens tokens;
   final ThemeController themeController;
@@ -32,138 +26,89 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final _profileRepository = ProfileRepository();
-  final _gradesRepository = GradesRepository();
-  final _yearsRepository = AcademicYearsRepository();
-  final _cache = CacheService();
+  late final HomeController _controller;
+  final _pageController = PageController();
 
-  static const _selectedYearKey = 'selected_academic_year_id';
-  static const _fallbackYearId = 14;
-
-  int _tabIndex = 0;
-
-  StudentProfile? _profile;
-  DateTime? _profileUpdated;
-  bool _profileLoading = false;
-  String? _profileError;
-
-  List<SubjectGrade>? _grades;
-  DateTime? _gradesUpdated;
-  bool _gradesLoading = false;
-  String? _gradesError;
-
-  List<AcademicYear>? _years;
-  int _selectedYearId = _fallbackYearId;
+  final _session = SessionNotifier.instance;
+  bool _reauthModalOpen = false;
 
   @override
   void initState() {
     super.initState();
-    _loadCachedAll();
+    _controller = HomeController(
+      tokens: widget.tokens,
+      onError: _showErrorSnack,
+    );
+    _session.addListener(_onSessionChanged);
+    _controller.init();
   }
-
-  Future<void> _loadCachedAll() async {
-    final profile = await _profileRepository.loadCached();
-    final profileUpdated = await _profileRepository.lastUpdated();
-    final years = await _yearsRepository.loadCached();
-    final savedYearId = await _cache.loadInt(_selectedYearKey);
-    final yearId = savedYearId ?? _currentYearIdFrom(years) ?? _fallbackYearId;
-    final grades = await _gradesRepository.loadCached(yearId);
-    final gradesUpdated = await _gradesRepository.lastUpdated(yearId);
-
-    if (!mounted) return;
-    setState(() {
-      _profile = profile;
-      _profileUpdated = profileUpdated;
-      _years = years;
-      _selectedYearId = yearId;
-      _grades = grades;
-      _gradesUpdated = gradesUpdated;
-    });
-  }
-
-  int? _currentYearIdFrom(List<AcademicYear>? years) {
-    if (years == null) return null;
-    for (final y in years) {
-      if (y.currentYear) return y.id;
-    }
-    return null;
-  }
-
-  Future<void> _refreshProfile() async {
-    setState(() {
-      _profileLoading = true;
-      _profileError = null;
-    });
-    try {
-      final profile = await _profileRepository.refresh(widget.tokens);
-      final updated = await _profileRepository.lastUpdated();
-      if (!mounted) return;
-      setState(() {
-        _profile = profile;
-        _profileUpdated = updated;
-      });
-    } catch (e) {
-      if (mounted) setState(() => _profileError = 'Не удалось обновить: $e');
-    } finally {
-      if (mounted) setState(() => _profileLoading = false);
-    }
-  }
-
-  Future<void> _refreshGrades() async {
-    setState(() {
-      _gradesLoading = true;
-      _gradesError = null;
-    });
-    try {
-      // Список годов тоже обновляем тут же — он нужен для дропдауна
-      // и меняется редко, лишний запрос не проблема.
-      final years = await _yearsRepository.refresh(widget.tokens);
-      final grades = await _gradesRepository.refresh(
-        widget.tokens,
-        _selectedYearId,
-      );
-      final updated = await _gradesRepository.lastUpdated(_selectedYearId);
-      if (!mounted) return;
-      setState(() {
-        _years = years;
-        _grades = grades;
-        _gradesUpdated = updated;
-      });
-    } catch (e) {
-      if (mounted) setState(() => _gradesError = 'Не удалось обновить: $e');
-    } finally {
-      if (mounted) setState(() => _gradesLoading = false);
-    }
-  }
-
-  Future<void> _refreshAll() =>
-      Future.wait([_refreshProfile(), _refreshGrades()]);
-
-  Future<void> _refreshCurrentTab() =>
-      _tabIndex == 0 ? _refreshProfile() : _refreshGrades();
-
-  Future<void> _onYearChanged(int yearId) async {
-    setState(() => _selectedYearId = yearId);
-    await _cache.saveInt(_selectedYearKey, yearId);
-    final cached = await _gradesRepository.loadCached(yearId);
-    final updated = await _gradesRepository.lastUpdated(yearId);
-    if (!mounted) return;
-    setState(() {
-      _grades = cached;
-      _gradesUpdated = updated;
-    });
-  }
-
-  final _pageController = PageController();
 
   @override
   void dispose() {
+    _session.removeListener(_onSessionChanged);
     _pageController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
+  // ── Реакция на истёкшую сессию ─────────────────────────────────────────
+
+  void _onSessionChanged() {
+    if (!mounted) return;
+    if (_session.needsAuth && !_reauthModalOpen) {
+      _showReauthSheet();
+    }
+  }
+
+  Future<void> _showReauthSheet() async {
+    if (_reauthModalOpen) return;
+    _reauthModalOpen = true;
+    try {
+      final confirmed = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        isDismissible: false,
+        enableDrag: false,
+        builder: (_) => const ReauthSheet(),
+      );
+      if (confirmed == true) {
+        await _runReauth();
+      }
+    } finally {
+      _reauthModalOpen = false;
+    }
+  }
+
+  Future<void> _runReauth() async {
+    final tokens = await Navigator.of(context).push<EposTokens>(
+      MaterialPageRoute(builder: (_) => const ReauthScreen()),
+    );
+    if (tokens == null || !mounted) return;
+    _controller.updateTokens(tokens);
+    await _controller.refreshCurrentTab();
+  }
+
+  // ── Общее ──────────────────────────────────────────────────────────────
+
+  void _showErrorSnack(String message) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(milliseconds: 1500),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+        backgroundColor: Theme.of(context).colorScheme.errorContainer,
+        dismissDirection: DismissDirection.horizontal,
+      ),
+    );
+  }
+
   void _onTabSelected(int i) {
-    if (i == _tabIndex) return;
+    if (i == _controller.tabIndex) return;
     _pageController.animateToPage(
       i,
       duration: const Duration(milliseconds: 300),
@@ -171,68 +116,220 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _openSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            SettingsScreen(themeController: widget.themeController),
+      ),
+    );
+  }
+
+  /// Обёртка над onRefresh для вкладок: если нужна переавторизация —
+  /// ничего не делаем (иконка в баре уже предлагает войти), иначе
+  /// делегируем в контроллер.
+  Future<void> _guardedRefresh(Future<void> Function() fn) async {
+    if (_session.needsAuth) return;
+    await fn();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final isProfileTab = _tabIndex == 0;
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final title = _controller.currentTitle;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 200),
-          child: Text(
-            isProfileTab ? 'Профиль' : 'Оценки',
-            key: ValueKey(_tabIndex),
-          ),
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Настройки',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    SettingsScreen(themeController: widget.themeController),
-              ),
+        return Scaffold(
+          appBar: AppBar(
+            title: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: Text(title, key: ValueKey(_controller.tabIndex)),
             ),
-          ),
-        ],
-      ),
-      body: PageView(
-        controller: _pageController,
-        onPageChanged: (i) => setState(() => _tabIndex = i),
-        children: [
-          ProfileView(
-            profile: _profile,
-            isLoading: _profileLoading,
-            error: _profileError,
-          ),
-          GradesView(
-            grades: _grades,
-            isLoading: _gradesLoading,
-            error: _gradesError,
-          ),
-        ],
-      ),
-      bottomNavigationBar: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          GlobalRefreshBar(
-            lastUpdated: isProfileTab ? _profileUpdated : _gradesUpdated,
-            isLoading: isProfileTab ? _profileLoading : _gradesLoading,
-            onRefreshAll: _refreshAll,
-            onRefreshCurrent: _refreshCurrentTab,
-            currentTabLabel: isProfileTab ? 'Профиль' : 'Оценки',
-          ),
-          NavigationBar(
-            selectedIndex: _tabIndex,
-            onDestinationSelected: _onTabSelected,   // ← было setState
-            destinations: const [
-              NavigationDestination(icon: Icon(Icons.person), label: 'Профиль'),
-              NavigationDestination(icon: Icon(Icons.grade), label: 'Оценки'),
+            actions: [
+              if (_controller.tabIndex == 1 &&
+                  (_controller.years?.isNotEmpty ?? false))
+                _YearMenu(controller: _controller),
+              IconButton(
+                icon: const Icon(Icons.settings_outlined),
+                tooltip: 'Настройки',
+                onPressed: _openSettings,
+              ),
             ],
           ),
-        ],
+          body: PageView(
+            controller: _pageController,
+            onPageChanged: _controller.setTabIndex,
+            children: [
+              ProfileView(
+                profile: _controller.profile,
+                isLoading: _controller.profileLoading,
+                error: _controller.profileErrorForView,
+                onRefresh: () => _guardedRefresh(_controller.refreshProfile),
+              ),
+              GradesView(
+                grades: _controller.grades,
+                isLoading: _controller.gradesLoading,
+                error: _controller.gradesErrorForView,
+                onRefresh: () => _guardedRefresh(_controller.refreshGrades),
+              ),
+              ScheduleView(
+                schedule: _controller.schedule,
+                marks: _controller.marks,
+                isLoading: _controller.scheduleLoading,
+                error: _controller.scheduleErrorForView,
+                weekStart: _controller.weekStart,
+                onWeekChanged: _controller.changeWeek,
+                onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
+              ),
+            ],
+          ),
+          bottomNavigationBar: _BottomBar(
+            controller: _controller,
+            needsAuth: _session.needsAuth,
+            onTabSelected: _onTabSelected,
+            onRefreshTap: () {
+              if (_session.needsAuth) {
+                _showReauthSheet();
+              } else {
+                _controller.refreshCurrentTab();
+              }
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Нижний бар: табы + кнопка. Когда нужна переавторизация, кнопка
+/// превращается в «войти», а не «обновить».
+class _BottomBar extends StatelessWidget {
+  final HomeController controller;
+  final bool needsAuth;
+  final ValueChanged<int> onTabSelected;
+  final VoidCallback onRefreshTap;
+
+  const _BottomBar({
+    required this.controller,
+    required this.needsAuth,
+    required this.onTabSelected,
+    required this.onRefreshTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final navTheme = NavigationBarTheme.of(context);
+    final bg = navTheme.backgroundColor ??
+        Theme.of(context).colorScheme.surfaceContainer;
+
+    return Material(
+      color: bg,
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: NavigationBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                selectedIndex: controller.tabIndex,
+                onDestinationSelected: onTabSelected,
+                destinations: const [
+                  NavigationDestination(icon: Icon(Icons.person), label: 'Профиль'),
+                  NavigationDestination(icon: Icon(Icons.grade), label: 'Оценки'),
+                  NavigationDestination(
+                    icon: Icon(Icons.calendar_today_outlined),
+                    label: 'Расписание',
+                  ),
+                ],
+              ),
+            ),
+            _TrailingAction(
+              needsAuth: needsAuth,
+              isLoading: controller.currentLoading,
+              onPressed: onRefreshTap,
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+class _TrailingAction extends StatelessWidget {
+  final bool needsAuth;
+  final bool isLoading;
+  final VoidCallback onPressed;
+
+  const _TrailingAction({
+    required this.needsAuth,
+    required this.isLoading,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final Widget child;
+    if (needsAuth) {
+      child = IconButton(
+        icon: const Icon(Icons.login),
+        tooltip: 'Войти заново',
+        onPressed: onPressed,
+      );
+    } else if (isLoading) {
+      child = const Center(
+        child: SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    } else {
+      child = IconButton(
+        icon: const Icon(Icons.refresh),
+        tooltip: 'Обновить',
+        onPressed: onPressed,
+      );
+    }
+
+    return SizedBox(
+      width: 56,
+      height: 80,
+      child: Center(
+        child: needsAuth
+            ? IconTheme.merge(
+          data: IconThemeData(color: theme.colorScheme.error),
+          child: child,
+        )
+            : child,
+      ),
+    );
+  }
+}
+
+class _YearMenu extends StatelessWidget {
+  final HomeController controller;
+
+  const _YearMenu({required this.controller});
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<int>(
+      icon: const Icon(Icons.school_outlined),
+      tooltip: 'Учебный год',
+      initialValue: controller.selectedYearId,
+      onSelected: controller.changeYear,
+      itemBuilder: (_) => [
+        for (final y in controller.years!)
+          CheckedPopupMenuItem<int>(
+            value: y.id,
+            checked: y.id == controller.selectedYearId,
+            child: Text(y.name),
+          ),
+      ],
     );
   }
 }

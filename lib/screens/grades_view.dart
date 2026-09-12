@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 
 import '../models/subject_grade.dart';
-import '../widgets/async_state_view.dart';
-import '../widgets/subject_grade_card.dart';
+import '../widgets/common/async_state_view.dart';
+import '../widgets/grades/subject_grade_card.dart';
 
 class GradesView extends StatefulWidget {
   final List<SubjectGrade>? grades;
   final bool isLoading;
   final String? error;
+  final Future<void> Function() onRefresh;
 
   const GradesView({
     super.key,
     required this.grades,
     required this.isLoading,
     required this.error,
+    required this.onRefresh,
   });
 
   @override
@@ -67,55 +69,60 @@ class _GradesViewState extends State<GradesView> {
 
   @override
   Widget build(BuildContext context) {
-    return AsyncStateView(
-      isLoading: widget.isLoading,
-      error: widget.error,
-      hasData: widget.grades != null && widget.grades!.isNotEmpty,
-      contentBuilder: (context) {
-        final all = widget.grades!;
-        final periods = _collectPeriods(all);
-        final selected = _selectedPeriod ??
-            (periods.isNotEmpty ? periods.first : null);
+    return RefreshIndicator(
+      onRefresh: widget.onRefresh,
+      child: AsyncStateView(
+        isLoading: widget.isLoading,
+        error: widget.error,
+        hasData: widget.grades != null && widget.grades!.isNotEmpty,
+        contentBuilder: (context) {
+          final all = widget.grades!;
+          final periods = _collectPeriods(all);
+          final selected = _selectedPeriod ??
+              (periods.isNotEmpty ? periods.first : null);
 
-        // Предметы, у которых есть оценки за выбранный период.
-        final visible = selected == null
-            ? all
-            : all.where((s) {
-          final p = s.periodByName(selected);
-          return p != null && p.allGrades.isNotEmpty;
-        }).toList();
+          // Предметы, у которых есть оценки за выбранный период.
+          final visible = selected == null
+              ? all
+              : all.where((s) {
+            final p = s.periodByName(selected);
+            return p != null && p.allGrades.isNotEmpty;
+          }).toList();
 
-        final listView = visible.isEmpty
-            ? ListView(
-          padding: const EdgeInsets.all(16),
-          children: const [
-            SizedBox(height: 80),
-            Center(child: Text('Нет оценок за этот период')),
-          ],
-        )
-            : ListView.separated(
-          padding: const EdgeInsets.all(16),
-          itemCount: visible.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
-          itemBuilder: (_, i) => SubjectGradeCard(
-            grade: visible[i],
-            selectedPeriod: selected,
-          ),
-        );
+          final listView = visible.isEmpty
+              ? ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: const [
+              SizedBox(height: 80),
+              Center(child: Text('Нет оценок за этот период')),
+            ],
+          )
+              : ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            itemCount: visible.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 10),
+            itemBuilder: (_, i) => SubjectGradeCard(
+              grade: visible[i],
+              selectedPeriod: selected,
+            ),
+          );
 
-        return Column(
-          children: [
-            // Показываем переключатель только если периодов реально > 1.
-            if (periods.length > 1)
-              _PeriodSwitcher(
-                periods: periods,
-                selected: selected!,
-                onChanged: (p) => setState(() => _selectedPeriod = p),
-              ),
-            Expanded(child: listView),
-          ],
-        );
-      },
+          return Column(
+            children: [
+              // Переключатель показываем только если периодов реально > 1.
+              if (periods.length > 1)
+                _PeriodSwitcher(
+                  periods: periods,
+                  selected: selected!,
+                  onChanged: (p) => setState(() => _selectedPeriod = p),
+                ),
+              Expanded(child: listView),
+            ],
+          );
+        },
+      ),
     );
   }
 }

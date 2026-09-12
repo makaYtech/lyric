@@ -1,9 +1,12 @@
-import 'dart:convert';
-import '../core/network/epos_http_client.dart';
+import '../core/network/api_client.dart';
 import '../models/subject_grade.dart';
 import 'auth_service.dart';
 
 class GradesService {
+  final ApiClient _api;
+
+  GradesService({ApiClient? api}) : _api = api ?? ApiClient();
+
   Future<List<SubjectGrade>> fetchGrades(
       EposTokens tokens, {
         required int academicYearId,
@@ -15,31 +18,10 @@ class GradesService {
           '&pid=${tokens.profileId}'
           '&student_profile_id=${tokens.profileId}',
     );
-
-    final client = await createEposHttpClient();
-    try {
-      final response = await client.get(
-        url,
-        headers: {
-          'Auth-Token': tokens.authToken,
-          'Profile-Id': tokens.profileId,
-          'Accept': 'application/json',
-        },
-      );
-
-      if (response.statusCode != 200) {
-        throw Exception(
-          'reports/progress вернул ${response.statusCode}: ${response.body}',
-        );
-      }
-
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes)) as List<dynamic>;
-      return decoded
-          .whereType<Map<String, dynamic>>()
-          .map(SubjectGrade.fromJson)
-          .toList();
-    } finally {
-      client.close();
-    }
+    final decoded = await _api.getList(url, tokens, attempts: 5);
+    return decoded
+        .whereType<Map<String, dynamic>>()
+        .map(SubjectGrade.fromApi)
+        .toList();
   }
 }

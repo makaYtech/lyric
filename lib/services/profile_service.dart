@@ -3,6 +3,7 @@ import '../core/network/epos_http_client.dart';
 import '../models/student_profile.dart';
 import 'auth_service.dart';
 import 'api_endpoints.dart';
+import 'epos_response_guard.dart';
 
 class ProfileService {
   Future<StudentProfile> fetchProfile(EposTokens tokens) async {
@@ -34,6 +35,7 @@ class ProfileService {
           ApiEndpoints.users('$userId', tokens.profileId),
           headers: headers,
         );
+        ensureSessionValid(userResp);
         if (userResp.statusCode == 200) {
           final userJson =
           jsonDecode(utf8.decode(userResp.bodyBytes)) as dynamic;

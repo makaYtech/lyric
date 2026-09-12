@@ -1,7 +1,13 @@
 import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Простой кэш поверх SharedPreferences.
+/// Простой кэш поверх SharedPreferences — для СТАТИЧЕСКИХ и небольших
+/// данных: профиль ученика, выбранный учебный год, прочие настройки.
+///
+/// Тяжёлые и часто меняющиеся данные (оценки, расписание) сюда не пишем —
+/// для них есть ScheduleDao/GradesDao поверх SQLite (core/db).
+///
 /// JSON-методы (save/load) автоматически ставят метку времени —
 /// ей пользуется lastUpdated(). Int-методы — для простых настроек
 /// вроде выбранного учебного года, без метки времени.
@@ -15,9 +21,9 @@ class CacheService {
   }
 
   Future<void> saveList(
-    String key,
-    List<Map<String, dynamic>> jsonList,
-  ) async {
+      String key,
+      List<Map<String, dynamic>> jsonList,
+      ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, jsonEncode(jsonList));
     await _touchTimestamp(prefs, key);
@@ -27,14 +33,24 @@ class CacheService {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(key);
     if (raw == null) return null;
-    return jsonDecode(raw) as Map<String, dynamic>;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<dynamic>?> loadList(String key) async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(key);
     if (raw == null) return null;
-    return jsonDecode(raw) as List<dynamic>;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is List ? decoded : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<DateTime?> lastUpdated(String key) async {
@@ -59,5 +75,15 @@ class CacheService {
       '$key$_timestampSuffix',
       DateTime.now().toIso8601String(),
     );
+  }
+
+  /// Сносит всё, что мы положили, кроме темы оформления (она не
+  /// относится к данным пользователя). Используется при logout.
+  Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in prefs.getKeys().toList()) {
+      if (key == 'theme_mode') continue;
+      await prefs.remove(key);
+    }
   }
 }

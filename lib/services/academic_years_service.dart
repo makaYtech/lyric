@@ -2,6 +2,7 @@ import 'dart:convert';
 import '../core/network/epos_http_client.dart';
 import '../models/academic_year.dart';
 import 'auth_service.dart';
+import 'epos_response_guard.dart';
 
 class AcademicYearsService {
   Future<List<AcademicYear>> fetchYears(EposTokens tokens) async {
@@ -20,7 +21,7 @@ class AcademicYearsService {
           'Accept': 'application/json',
         },
       );
-
+      ensureSessionValid(response);
       if (response.statusCode != 200) {
         throw Exception(
           'Сервер вернул ${response.statusCode}: ${response.body}',

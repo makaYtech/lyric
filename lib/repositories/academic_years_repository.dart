@@ -15,9 +15,14 @@ class AcademicYearsRepository {
   Future<List<AcademicYear>?> loadCached() async {
     final json = await _cache.loadList(_cacheKey);
     if (json == null) return null;
-    return json
-        .map((e) => AcademicYear.fromJson(e as Map<String, dynamic>))
-        .toList();
+    try {
+      return json
+          .whereType<Map<String, dynamic>>()
+          .map(AcademicYear.fromJson)
+          .toList();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<AcademicYear>> refresh(EposTokens tokens) async {

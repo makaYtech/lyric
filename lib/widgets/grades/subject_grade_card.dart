@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../models/subject_grade.dart';
+import '../../models/subject_grade.dart';
+import '../common/grade_dot.dart';
 
 class SubjectGradeCard extends StatelessWidget {
   final SubjectGrade grade;
@@ -27,6 +28,8 @@ class SubjectGradeCard extends StatelessWidget {
         grade.periods.expand((p) => p.workTypes).toList();
     final avg = period?.average ?? grade.average;
     final allGrades = period?.allGrades ?? grade.allGrades;
+    final allDates = period?.allDates ?? grade.allDates;
+    final allComments = period?.allComments ?? grade.allComments;
     final avgColor = _averageColor(avg);
 
     return Card(
@@ -53,7 +56,11 @@ class SubjectGradeCard extends StatelessWidget {
           ),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: _MiniGradesRow(grades: allGrades),
+            child: _MiniGradesRow(
+              grades: allGrades,
+              dates: allDates,
+              comments: allComments,
+            ),
           ),
           children: [
             const Divider(height: 1),
@@ -111,7 +118,23 @@ class _AverageBadge extends StatelessWidget {
 
 class _MiniGradesRow extends StatelessWidget {
   final List<int> grades;
-  const _MiniGradesRow({required this.grades});
+  final List<DateTime?> dates;
+  final List<String?> comments;
+
+  const _MiniGradesRow({
+    required this.grades,
+    this.dates = const [],
+    this.comments = const [],
+  });
+
+  /// Достаёт i-й элемент, если он есть и совпадает по типу с ожидаемым.
+  /// Принимает List<Object?>, чтобы не спотыкаться о вывод типов
+  /// (List<DateTime?> / List<String?> отлично сюда подходят).
+  T? _at<T>(List<Object?> list, int i) {
+    if (i < 0 || i >= list.length) return null;
+    final v = list[i];
+    return v is T ? v : null;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -119,13 +142,23 @@ class _MiniGradesRow extends StatelessWidget {
       return Text('Нет оценок',
           style: Theme.of(context).textTheme.bodySmall);
     }
-    final shown = grades.length > 8 ? grades.sublist(grades.length - 8) : grades;
+    final start = grades.length > 8 ? grades.length - 8 : 0;
+    final shown = grades.sublist(start);
     return Row(
       children: [
-        for (final g in shown)
+        for (var i = 0; i < shown.length; i++)
           Padding(
             padding: const EdgeInsets.only(right: 4),
-            child: _GradeDot(value: g, size: 22),
+            child: GradeDot(
+              value: shown[i],
+              size: 22,
+              onTap: () => showGradeDetails(
+                context,
+                value: shown[i],
+                receivedAt: _at<DateTime>(dates, start + i),
+                comment: _at<String>(comments, start + i),
+              ),
+            ),
           ),
         if (grades.length > 8)
           Padding(
@@ -175,55 +208,21 @@ class _WorkTypeRow extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              for (final g in workType.grades) _GradeDot(value: g, size: 28),
+              for (var i = 0; i < workType.grades.length; i++)
+                GradeDot(
+                  value: workType.grades[i],
+                  size: 28,
+                  onTap: () => showGradeDetails(
+                    context,
+                    value: workType.grades[i],
+                    receivedAt: workType.dateAt(i),
+                    comment: workType.commentAt(i),
+                  ),
+                ),
             ],
           ),
         ],
       ),
     );
-  }
-}
-
-class _GradeDot extends StatelessWidget {
-  final int value;
-  final double size;
-  const _GradeDot({required this.value, required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    final color = _colorFor(value);
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
-        shape: BoxShape.circle,
-        border: Border.all(color: color, width: 1),
-      ),
-      child: Text(
-        '$value',
-        style: TextStyle(
-          color: color,
-          fontSize: size * 0.5,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-
-  Color _colorFor(int v) {
-    switch (v) {
-      case 5:
-        return Colors.green;
-      case 4:
-        return Colors.blue;
-      case 3:
-        return Colors.orange;
-      case 2:
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
   }
 }

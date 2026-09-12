@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../models/student_profile.dart';
-import 'info_tile.dart';
+import '../../core/util/names.dart';
+import '../../models/student_profile.dart';
+import '../common/info_tile.dart';
 import 'schools_tile.dart';
 
 class ProfileCard extends StatelessWidget {
@@ -45,7 +46,7 @@ class _Header extends StatelessWidget {
             radius: 32,
             backgroundColor: theme.colorScheme.primaryContainer,
             child: Text(
-              _initials(profile.userName),
+              initials(profile.userName),
               style: theme.textTheme.titleLarge?.copyWith(
                 color: theme.colorScheme.onPrimaryContainer,
                 fontWeight: FontWeight.w600,
@@ -102,19 +103,4 @@ class _Body extends StatelessWidget {
       ),
     );
   }
-}
-
-/// "Иванов Иван Иванович" → "ИИ"
-String _initials(String fullName) {
-  final parts = fullName
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((p) => p.isNotEmpty)
-      .toList();
-  if (parts.isEmpty) return '?';
-  if (parts.length == 1) {
-    return parts.first.characters.first.toUpperCase();
-  }
-  return (parts.first.characters.first + parts[1].characters.first)
-      .toUpperCase();
 }

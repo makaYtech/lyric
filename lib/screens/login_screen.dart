@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+
+import '../core/auth/token_storage.dart';
 import '../core/theme/theme_controller.dart';
 import '../services/auth_service.dart';
 import 'home_screen.dart';
@@ -18,14 +20,26 @@ class _LoginScreenState extends State<LoginScreen> {
   late final WebViewController _controller;
   String _status = 'Загрузка...';
 
+  /// onPageFinished может выстрелить несколько раз подряд после логина
+  /// (редиректы), поэтому уходим на HomeScreen строго один раз.
+  bool _navigated = false;
+
   @override
   void initState() {
     super.initState();
     _controller = _authService.createLoginController(
       onStatus: (status) {
-        if (mounted) setState(() => _status = status);
+        if (mounted && !_navigated) setState(() => _status = status);
       },
-      onTokensFound: (tokens) {
+      onTokensFound: (tokens) async {
+        if (_navigated || !mounted) return;
+        _navigated = true;
+
+        // Сохраняем до навигации: если приложение убьют сразу после
+        // логина — на следующем старте сразу попадём на Home.
+        await TokenStorage().save(tokens);
+        if (!mounted) return;
+
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => HomeScreen(
