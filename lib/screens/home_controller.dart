@@ -1,14 +1,18 @@
 import 'package:flutter/foundation.dart';
 
 import '../core/auth/session_notifier.dart';
+import '../core/backend/backends_prefs.dart';
 import '../core/cache/cache_service.dart';
+import '../core/settings/homework_prefs.dart';
 import '../core/settings/schedule_prefs.dart';
+import '../core/settings/teacher_prefs.dart';
 import '../models/academic_year.dart';
 import '../models/day_schedule.dart';
 import '../models/homework.dart';
 import '../models/mark.dart';
 import '../models/student_profile.dart';
 import '../models/subject_grade.dart';
+import '../models/teacher.dart';
 import '../repositories/academic_years_repository.dart';
 import '../repositories/grades_repository.dart';
 import '../repositories/homework_repository.dart';
@@ -16,11 +20,10 @@ import '../repositories/marks_repository.dart';
 import '../repositories/profile_repository.dart';
 import '../repositories/schedule_repository.dart';
 import '../repositories/student_groups_repository.dart';
+import '../repositories/teachers_repository.dart';
 import '../services/auth_service.dart';
 import '../services/session_expired_exception.dart';
 import '../core/auth/token_storage.dart';
-import '../core/settings/homework_prefs.dart';
-import '../core/backend/backends_prefs.dart';
 
 class HomeController extends ChangeNotifier {
   HomeController({
@@ -33,6 +36,7 @@ class HomeController extends ChangeNotifier {
     StudentGroupsRepository? groupsRepository,
     MarksRepository? marksRepository,
     HomeworkRepository? homeworkRepository,
+    TeachersRepository? teachersRepository,
     CacheService? cache,
   })  : _tokens = tokens,
         _onError = onError,
@@ -43,6 +47,7 @@ class HomeController extends ChangeNotifier {
         _groupsRepository = groupsRepository ?? StudentGroupsRepository(),
         _marksRepository = marksRepository ?? MarksRepository(),
         _homeworkRepository = homeworkRepository ?? HomeworkRepository(),
+        _teachersRepository = teachersRepository ?? TeachersRepository(),
         _cache = cache ?? CacheService() {
     _weekStart = _currentMonday();
   }
@@ -59,10 +64,12 @@ class HomeController extends ChangeNotifier {
   final StudentGroupsRepository _groupsRepository;
   final MarksRepository _marksRepository;
   final HomeworkRepository _homeworkRepository;
+  final TeachersRepository _teachersRepository;
   final CacheService _cache;
   final TokenStorage _tokenStorage = TokenStorage();
 
   static const _selectedYearKey = 'selected_academic_year_id';
+  static const _studentTeacherIdsKey = 'student_teacher_ids';
   static const _fallbackYearId = 14;
 
   static const titles = ['Профиль', 'Оценки', 'Расписание', 'ДЗ'];
@@ -80,6 +87,22 @@ class HomeController extends ChangeNotifier {
   bool get profileLoading => _profileLoading;
   String? _profileError;
   String? get profileError => _profileError;
+
+  /// Учителя ученика — из /core/api/teacher_profiles, кэш в SQLite.
+  List<Teacher>? _teachers;
+  List<Teacher>? get teachers => _teachers;
+  DateTime? _teachersUpdated;
+  DateTime? get teachersUpdated => _teachersUpdated;
+  bool _teachersLoading = true;
+  bool get teachersLoading => _teachersLoading;
+  String? _teachersError;
+  String? get teachersError => _teachersError;
+
+  /// id учителей, которые ведут у текущего ученика — копится из
+  /// расписания (teacher_id в lesson). Хранится как «1,2,3» в
+  /// SharedPreferences, чтобы переживало перезапуск.
+  Set<int> _studentTeacherIds = <int>{};
+  Set<int> get studentTeacherIds => _studentTeacherIds;
 
   List<SubjectGrade>? _grades;
   List<SubjectGrade>? get grades => _grades;
@@ -137,11 +160,15 @@ class HomeController extends ChangeNotifier {
     _ => false,
   };
 
+  /// true, если хоть одна вкладка сейчас грузится. Для нижней кнопки
+  /// «обновить всё» — она запускает параллельно несколько запросов,
+  /// и показывать окончание загрузки по одной текущей вкладке неправильно.
   bool get anyLoading =>
       _profileLoading ||
-      _gradesLoading ||
-      _scheduleLoading ||
-      _homeworksLoading;
+          _gradesLoading ||
+          _scheduleLoading ||
+          _homeworksLoading ||
+          _teachersLoading;
 
   String? get profileErrorForView => _profile == null ? _profileError : null;
   String? get gradesErrorForView =>
@@ -157,6 +184,7 @@ class HomeController extends ChangeNotifier {
     await _tokenStorage.save(_tokens);
     await SchedulePrefs.load();
     await HomeworkPrefs.load();
+    await TeacherPrefs.load();
     await BackendPrefs.load();
     await _loadCachedAll();
     await refreshAll();
@@ -188,18 +216,33 @@ class HomeController extends ChangeNotifier {
 
   // ── Кэш ────────────────────────────────────────────────────────────────
 
+  /// Загружает всё, что есть в локальном кэше, ДО первого сетевого запроса.
+  /// Два независимых «слоя»: сначала всё, что не зависит от выбранного
+  /// учебного года, потом — то, что зависит. Внутри каждого слоя фьючи
+  /// стартуют параллельно: запросы в SharedPreferences/SQLite не мешают
+  /// друг другу, а последовательный await заметно тормозит холодный старт.
   Future<void> _loadCachedAll() async {
     final profileFut = _profileRepository.loadCached();
     final profileUpdFut = _profileRepository.lastUpdated();
     final yearsFut = _yearsRepository.loadCached();
     final groupsFut = _groupsRepository.loadCached();
     final yearIdFut = _cache.loadInt(_selectedYearKey);
+    final teacherIdsFut = _cache.loadString(_studentTeacherIdsKey);
 
     final profile = await profileFut;
     final profileUpdated = await profileUpdFut;
     final years = await yearsFut;
     final groups = await groupsFut;
     final savedYearId = await yearIdFut;
+    final teacherIdsRaw = await teacherIdsFut;
+
+    if (teacherIdsRaw != null && teacherIdsRaw.isNotEmpty) {
+      _studentTeacherIds = teacherIdsRaw
+          .split(',')
+          .map(int.tryParse)
+          .whereType<int>()
+          .toSet();
+    }
 
     final yearId =
         savedYearId ?? _currentYearIdFrom(years) ?? _fallbackYearId;
@@ -212,6 +255,8 @@ class HomeController extends ChangeNotifier {
     final marksFut = _marksRepository.loadCached(yearId, _weekStart);
     final homeworksFut = _homeworkRepository.loadCached(yearId);
     final homeworksUpdFut = _homeworkRepository.lastUpdated(yearId);
+    final teachersFut = _teachersRepository.loadCached(yearId);
+    final teachersUpdFut = _teachersRepository.lastUpdated(yearId);
 
     final grades = await gradesFut;
     final gradesUpdated = await gradesUpdFut;
@@ -220,6 +265,8 @@ class HomeController extends ChangeNotifier {
     final marks = await marksFut;
     final homeworks = await homeworksFut;
     final homeworksUpdated = await homeworksUpdFut;
+    final teachers = await teachersFut;
+    final teachersUpdated = await teachersUpdFut;
 
     if (_disposed) return;
     _profile = profile;
@@ -234,6 +281,8 @@ class HomeController extends ChangeNotifier {
     _marks = marks.isEmpty ? null : marks;
     _homeworks = homeworks;
     _homeworksUpdated = homeworksUpdated;
+    _teachers = teachers;
+    _teachersUpdated = teachersUpdated;
     _notify();
   }
 
@@ -279,6 +328,7 @@ class HomeController extends ChangeNotifier {
     refreshGrades(),
     refreshSchedule(),
     refreshHomeworks(),
+    _refreshTeachers(),
   ]);
 
   Future<void> refreshCurrentTab() {
@@ -309,6 +359,32 @@ class HomeController extends ChangeNotifier {
     errorToast: 'Не удалось обновить профиль',
     silent: silent,
   );
+
+  /// Учителя — реальный запрос + кэш в SQLite. Ошибки глушим, чтобы
+  /// вкладка Профиль не ломалась целиком из-за сбоя в списке учителей.
+  Future<void> _refreshTeachers() async {
+    _teachersLoading = true;
+    _notify();
+    try {
+      final list =
+      await _teachersRepository.refresh(_tokens, _selectedYearId);
+      final updated = await _teachersRepository.lastUpdated(_selectedYearId);
+      if (_disposed) return;
+      _teachers = list;
+      _teachersUpdated = updated;
+      _teachersError = null;
+    } on SessionExpiredException {
+      SessionNotifier.instance.markExpired();
+    } catch (e) {
+      if (_disposed) return;
+      _teachersError = 'Не удалось обновить: $e';
+    } finally {
+      if (!_disposed) {
+        _teachersLoading = false;
+        _notify();
+      }
+    }
+  }
 
   Future<void> _refreshYears() async {
     try {
@@ -392,6 +468,24 @@ class HomeController extends ChangeNotifier {
         monday,
         _selectedYearId,
       );
+
+      // Собираем id учителей из свежего расписания — они нужны для
+      // фильтра «Только мои учителя» в профиле.
+      final newIds = <int>{..._studentTeacherIds};
+      for (final day in schedule) {
+        for (final l in day.lessons) {
+          final tid = l.teacherId;
+          if (tid != null) newIds.add(tid);
+        }
+      }
+      if (newIds.length != _studentTeacherIds.length) {
+        _studentTeacherIds = newIds;
+        await _cache.saveString(
+          _studentTeacherIdsKey,
+          newIds.join(','),
+        );
+      }
+
       if (_disposed) return;
       _schedule = schedule;
       _marks = marks;
@@ -459,6 +553,8 @@ class HomeController extends ChangeNotifier {
     _gradesUpdated = null;
     _homeworks = null;
     _homeworksUpdated = null;
+    _teachers = null;
+    _teachersUpdated = null;
     _notify();
 
     await _cache.saveInt(_selectedYearKey, yearId);
@@ -467,15 +563,20 @@ class HomeController extends ChangeNotifier {
     final updatedGrades = await _gradesRepository.lastUpdated(yearId);
     final cachedHw = await _homeworkRepository.loadCached(yearId);
     final updatedHw = await _homeworkRepository.lastUpdated(yearId);
+    final cachedTeachers = await _teachersRepository.loadCached(yearId);
+    final updatedTeachers = await _teachersRepository.lastUpdated(yearId);
     if (_disposed) return;
     _grades = cachedGrades;
     _gradesUpdated = updatedGrades;
     _homeworks = cachedHw;
     _homeworksUpdated = updatedHw;
+    _teachers = cachedTeachers;
+    _teachersUpdated = updatedTeachers;
     _notify();
 
     await refreshGrades(silent: true);
     await refreshHomeworks(silent: true);
+    await _refreshTeachers();
   }
 
   static DateTime _currentMonday() {

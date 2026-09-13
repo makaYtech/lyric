@@ -16,7 +16,7 @@ String shortTeacherName(String full) {
       .where((p) => p.isNotEmpty)
       .toList();
   if (parts.isEmpty) return full;
-  final last = _capitalize(parts.first);
+  final last = capitalizeFirst(parts.first);
   if (parts.length < 2) return last;
   final initialsPart = parts
       .skip(1)
@@ -24,6 +24,18 @@ String shortTeacherName(String full) {
       .map((p) => '${p[0].toUpperCase()}.')
       .join(' ');
   return '$last $initialsPart';
+}
+
+/// "БАТАКОВА ЕВГЕНИЯ ЛЕОНИДОВНА" → "Батакова Евгения Леонидовна"
+/// "Иванова Мария Сергеевна" → без изменений
+/// Нормализует регистр всех слов — нужно для полного ФИО в карточках.
+String normalizeFullName(String full) {
+  return full
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((p) => p.isNotEmpty)
+      .map(capitalizeFirst)
+      .join(' ');
 }
 
 /// "Иванов Иван Иванович" → "ИИ"
@@ -41,7 +53,9 @@ String initials(String fullName) {
       .toUpperCase();
 }
 
-String _capitalize(String word) {
+/// Первая буква заглавная, остальные строчные. Публичная — используется
+/// и в коротком ФИО, и в названиях кабинетов.
+String capitalizeFirst(String word) {
   if (word.isEmpty) return word;
   return word[0].toUpperCase() + word.substring(1).toLowerCase();
 }

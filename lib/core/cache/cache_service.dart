@@ -70,13 +70,6 @@ class CacheService {
     return prefs.getInt(key);
   }
 
-  Future<void> _touchTimestamp(SharedPreferences prefs, String key) async {
-    await prefs.setString(
-      '$key$_timestampSuffix',
-      DateTime.now().toIso8601String(),
-    );
-  }
-
   Future<void> saveString(String key, String value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, value);
@@ -85,6 +78,13 @@ class CacheService {
   Future<String?> loadString(String key) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(key);
+  }
+
+  Future<void> _touchTimestamp(SharedPreferences prefs, String key) async {
+    await prefs.setString(
+      '$key$_timestampSuffix',
+      DateTime.now().toIso8601String(),
+    );
   }
 
   /// Сносит всё, что мы положили, кроме темы оформления (она не

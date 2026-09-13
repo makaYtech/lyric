@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../core/settings/homework_prefs.dart';
 import '../core/util/labels.dart';
@@ -32,8 +33,7 @@ class HomeworkView extends StatefulWidget {
 
 class _HomeworkViewState extends State<HomeworkView>
     with AutomaticKeepAliveClientMixin {
-  final _stripController = ScrollController();
-  final _stripKeys = <GlobalKey>[];
+  final _itemScrollController = ItemScrollController();
   List<DateTime> _dates = const [];
   int _selectedIndex = 0;
 
@@ -61,15 +61,16 @@ class _HomeworkViewState extends State<HomeworkView>
     }
 
     // Вкладку только что открыли — центрируем выбранный день.
+    // Откладываем на время анимации PageView (300ms) + запас, иначе
+    // скролл полосы конфликтует с анимацией страницы и лагает.
     if (!oldWidget.isActive && widget.isActive) {
-      _scheduleScrollToSelected();
+      _scheduleScrollToSelected(delay: const Duration(milliseconds: 350));
     }
   }
 
   @override
   void dispose() {
     HomeworkPrefs.groupByDue.removeListener(_onPrefChanged);
-    _stripController.dispose();
     super.dispose();
   }
 
@@ -86,7 +87,6 @@ class _HomeworkViewState extends State<HomeworkView>
     return d.isNotEmpty && d != 'не задано';
   }
 
-  /// Какая дата используется для группировки в текущем режиме.
   DateTime? _dateFor(Homework h) {
     return HomeworkPrefs.groupByDue.value ? h.dueDate : h.assignedAt;
   }
@@ -100,7 +100,6 @@ class _HomeworkViewState extends State<HomeworkView>
     if (homeworks == null || homeworks.isEmpty) {
       _dates = const [];
       _selectedIndex = 0;
-      _stripKeys.clear();
       return;
     }
 
@@ -115,7 +114,6 @@ class _HomeworkViewState extends State<HomeworkView>
     if (datesWithHw.isEmpty) {
       _dates = const [];
       _selectedIndex = 0;
-      _stripKeys.clear();
       return;
     }
 
@@ -139,10 +137,6 @@ class _HomeworkViewState extends State<HomeworkView>
 
     _dates = display;
 
-    _stripKeys
-      ..clear()
-      ..addAll(List.generate(display.length, (_) => GlobalKey()));
-
     int idx = -1;
     if (oldSelected != null) {
       idx = display.indexWhere((d) => d == oldSelected);
@@ -156,17 +150,26 @@ class _HomeworkViewState extends State<HomeworkView>
     _selectedIndex = idx.clamp(0, display.length - 1);
   }
 
-  void _scheduleScrollToSelected() {
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
+  void _scheduleScrollToSelected({Duration? delay}) {
+    if (delay == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToSelected());
+    } else {
+      Future.delayed(delay, () {
+        if (mounted) _scrollToSelected();
+      });
+    }
   }
 
   Future<void> _scrollToSelected() async {
     if (!mounted) return;
-    if (_selectedIndex < 0 || _selectedIndex >= _stripKeys.length) return;
-    final ctx = _stripKeys[_selectedIndex].currentContext;
-    if (ctx == null) return;
-    await Scrollable.ensureVisible(
-      ctx,
+    if (_selectedIndex < 0 || _selectedIndex >= _dates.length) return;
+    if (!_itemScrollController.isAttached) return;
+
+    // В полосе пункты идут парами: чип + разделитель. Значит индекс
+    // чипа = 2 * _selectedIndex (см. _DateStrip).
+    final target = _selectedIndex * 2;
+    _itemScrollController.scrollTo(
+      index: target,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
       alignment: 0.5, // 0.5 = центр вьюпорта
@@ -214,10 +217,9 @@ class _HomeworkViewState extends State<HomeworkView>
                 ),
                 _DateStrip(
                   dates: _dates,
-                  keys: _stripKeys,
-                  controller: _stripController,
                   selectedIndex: _selectedIndex,
                   onSelected: _select,
+                  itemScrollController: _itemScrollController,
                 ),
                 const Divider(height: 1),
                 Expanded(
@@ -247,7 +249,7 @@ class _HomeworkViewState extends State<HomeworkView>
   }
 }
 
-/// Переключатель режима группировки. Лейбл «ПЕщё немного — и кранты» —
+/// Переключатель режима группировки. Лейбл «Ещё немного — и кранты» —
 /// переключает между «по дню, когда задали» и «по дню дедлайна».
 class _ModeSwitcher extends StatelessWidget {
   final bool groupByDue;
@@ -296,19 +298,23 @@ class _ModeSwitcher extends StatelessWidget {
   }
 }
 
+/// Полоса дат: каждая дата — чип, между чипами — разделители
+/// (пустое место / вертикальная черта недели / метка месяца).
+///
+/// Использует ленивый `ScrollablePositionedList`, чтобы строить только
+/// видимые чипы. Общее количество пунктов = 2 * dates.length - 1
+/// (чередование чип/разделитель). Чип с датой `i` — на пункте `2*i`.
 class _DateStrip extends StatelessWidget {
   final List<DateTime> dates;
-  final List<GlobalKey> keys;
-  final ScrollController controller;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final ItemScrollController itemScrollController;
 
   const _DateStrip({
     required this.dates,
-    required this.keys,
-    required this.controller,
     required this.selectedIndex,
     required this.onSelected,
+    required this.itemScrollController,
   });
 
   @override
@@ -316,43 +322,40 @@ class _DateStrip extends StatelessWidget {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    final children = <Widget>[];
-    for (var i = 0; i < dates.length; i++) {
-      if (i > 0) {
-        final prev = dates[i - 1];
-        final cur = dates[i];
-        if (cur.month != prev.month) {
-          children.add(_MonthSeparator(month: cur.month));
-        } else if (cur.weekday == DateTime.monday) {
-          children.add(const _WeekSeparator());
-        } else {
-          children.add(const SizedBox(width: 6));
-        }
-      }
-
-      final d = dates[i];
-      children.add(KeyedSubtree(
-        key: keys[i],
-        child: _DateChip(
-          date: d,
-          selected: i == selectedIndex,
-          isToday: d == today,
-          onTap: () => onSelected(i),
-        ),
-      ));
-    }
+    // Общее число пунктов: N чипов + (N-1) разделителей.
+    final itemCount = dates.length * 2 - 1;
 
     return SizedBox(
       height: 80,
-      // SingleChildScrollView + Row вместо ListView: все чипы строятся
-      // сразу и имеют RenderObject, поэтому ensureVisible может доехать
-      // до любого, даже изначально невидимого. У ListView далёкий чип
-      // ещё не построен, и его GlobalKey.currentContext = null.
-      child: SingleChildScrollView(
-        controller: controller,
+      child: ScrollablePositionedList.builder(
+        itemScrollController: itemScrollController,
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(children: children),
+        itemCount: itemCount,
+        itemBuilder: (context, i) {
+          // Чётные — чипы, нечётные — разделители.
+          if (i.isEven) {
+            final dateIndex = i ~/ 2;
+            final d = dates[dateIndex];
+            return _DateChip(
+              date: d,
+              selected: dateIndex == selectedIndex,
+              isToday: d == today,
+              onTap: () => onSelected(dateIndex),
+            );
+          }
+
+          // Разделитель между dateIndex = (i-1)/2 и (i+1)/2.
+          final prev = dates[(i - 1) ~/ 2];
+          final cur = dates[(i + 1) ~/ 2];
+          if (cur.month != prev.month) {
+            return _MonthSeparator(month: cur.month);
+          }
+          if (cur.weekday == DateTime.monday) {
+            return const _WeekSeparator();
+          }
+          return const SizedBox(width: 6);
+        },
       ),
     );
   }

@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 
-import '../../core/util/names.dart';
 import '../../models/student_profile.dart';
 import '../common/info_tile.dart';
+import '../common/person_avatar.dart';
 import 'schools_tile.dart';
 
 class ProfileCard extends StatelessWidget {
   final StudentProfile profile;
 
-  const ProfileCard({super.key, required this.profile});
+  /// Ключ для локальной аватарки ученика. Если null — тап по аватарке
+  /// не открывает picker.
+  final String? avatarKey;
+
+  const ProfileCard({
+    super.key,
+    required this.profile,
+    this.avatarKey,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +29,7 @@ class ProfileCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Header(profile: profile),
+          _Header(profile: profile, avatarKey: avatarKey),
           const Divider(height: 1),
           _Body(profile: profile),
         ],
@@ -32,8 +40,9 @@ class ProfileCard extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   final StudentProfile profile;
+  final String? avatarKey;
 
-  const _Header({required this.profile});
+  const _Header({required this.profile, this.avatarKey});
 
   @override
   Widget build(BuildContext context) {
@@ -42,16 +51,10 @@ class _Header extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
       child: Row(
         children: [
-          CircleAvatar(
+          PersonAvatar(
+            fullName: profile.userName,
             radius: 32,
-            backgroundColor: theme.colorScheme.primaryContainer,
-            child: Text(
-              initials(profile.userName),
-              style: theme.textTheme.titleLarge?.copyWith(
-                color: theme.colorScheme.onPrimaryContainer,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
+            avatarKey: avatarKey,
           ),
           const SizedBox(width: 16),
           Expanded(

@@ -1,20 +1,19 @@
 import 'dart:convert';
 
 class Lesson {
-  /// id урока из schedule_items — ключ строки в БД и ключ, по которому
-  /// матчатся оценки (Mark.scheduleLessonId == Lesson.id).
   final int? id;
-  /// Заполняется только у пары (см. mergeLessonPairs): id второго урока,
-  /// чтобы оценки, привязанные к нему, тоже подтянулись в паре.
-  /// Нигде не сохраняется — при загрузке из БД пара собирается заново.
   final int? secondaryId;
   final String startTime;
   final String endTime;
   final String subject;
-  /// Числовой id предмета — на всякий случай, если матч по id урока не сработал.
   final int? subjectId;
   final List<String> homeworks;
   final String? teacher;
+
+  /// Числовой id учителя из schedule_items. Нужен, чтобы понять,
+  /// какие учителя реально ведут уроки у текущего ученика.
+  final int? teacherId;
+
   final String? room;
   final bool isPaired;
   final int? breakMinutes;
@@ -28,6 +27,7 @@ class Lesson {
     this.subjectId,
     this.homeworks = const [],
     this.teacher,
+    this.teacherId,
     this.room,
     this.isPaired = false,
     this.breakMinutes,
@@ -41,6 +41,7 @@ class Lesson {
     subjectId: json['subject_id'] as int?,
     homeworks: decodeHomeworks(json['homework']),
     teacher: json['teacher'] as String?,
+    teacherId: json['teacher_id'] as int?,
     room: json['room'] as String?,
   );
 
@@ -52,6 +53,7 @@ class Lesson {
     'subject_id': subjectId,
     'homework': jsonEncode(homeworks),
     'teacher': teacher,
+    'teacher_id': teacherId,
     'room': room,
   };
 
@@ -106,6 +108,7 @@ List<Lesson> mergeLessonPairs(List<Lesson> lessons) {
         subjectId: a.subjectId,
         homeworks: homeworks,
         teacher: a.teacher,
+        teacherId: a.teacherId,
         room: a.room,
         isPaired: true,
         breakMinutes:

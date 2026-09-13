@@ -11,6 +11,7 @@ import 'profile_view.dart';
 import 'reauth_screen.dart';
 import 'schedule_view.dart';
 import 'settings_screen.dart';
+import '../core/settings/avatar_storage.dart';
 
 class HomeScreen extends StatefulWidget {
   final EposTokens tokens;
@@ -120,8 +121,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openSettings() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) =>
-            SettingsScreen(themeController: widget.themeController),
+        builder: (_) => SettingsScreen(
+          themeController: widget.themeController,
+          studentAvatarKey:
+          AvatarStorage.studentKey(_controller.tokens.profileId),
+          teachers: _controller.teachers,
+        ),
       ),
     );
   }
@@ -145,6 +150,8 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(title, key: ValueKey(_controller.tabIndex)),
             ),
             actions: [
+              // Меню выбора учебного года нужно на вкладках, которые
+              // зависят от года: Оценки и ДЗ.
               if ((_controller.tabIndex == 1 || _controller.tabIndex == 3) &&
                   (_controller.years?.isNotEmpty ?? false))
                 _YearMenu(controller: _controller),
@@ -161,6 +168,9 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               ProfileView(
                 profile: _controller.profile,
+                teachers: _controller.teachers,
+                studentTeacherIds: _controller.studentTeacherIds,
+                studentAvatarKey: AvatarStorage.studentKey(_controller.tokens.profileId),
                 isLoading: _controller.profileLoading,
                 error: _controller.profileErrorForView,
                 onRefresh: () => _guardedRefresh(_controller.refreshProfile),

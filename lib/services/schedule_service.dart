@@ -73,6 +73,7 @@ class ScheduleService {
           subjectId: item.subjectId,
           homeworks: _homeworkTexts(item.homeworkIds, homeworks),
           teacher: item.teacherId == null ? null : teachers[item.teacherId],
+          teacherId: item.teacherId,
           room: _roomLine(item.roomId, item.roomName, rooms),
         ),
       );

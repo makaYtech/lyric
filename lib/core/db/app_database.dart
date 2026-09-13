@@ -11,18 +11,21 @@ import 'package:sqflite/sqflite.dart';
 /// marks         — индивидуальные оценки из /core/api/marks,
 ///                  нужны расписанию: точки с временем получения.
 /// homeworks     — ДЗ по году из /core/api/student_homeworks.
+/// teachers      — учителя школы из /core/api/teacher_profiles
+///                  (с обогащением через /core/api/rooms).
 class AppDatabase {
   AppDatabase._();
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 7;
+  static const _version = 9;
 
-  static const tableHomeworks = 'homeworks';
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
   static const tableGradeHistory = 'grade_history';
   static const tableMarks = 'marks';
+  static const tableHomeworks = 'homeworks';
+  static const tableTeachers = 'teachers';
 
   Database? _db;
   Future<Database>? _opening;
@@ -69,23 +72,30 @@ class AppDatabase {
           await _createMarksTable(db);
         }
         if (oldVersion < 6) {
-          // homeworks успела пожить в нескольких несовместимых схемах:
-          // сначала без homework_id/entry_id, потом без teacher_name,
-          // потом с синтаксической ошибкой в CREATE TABLE. ALTER-ми это
-          // чинить бессмысленно — проще дропнуть и создать заново.
-          // Данные ДЗ всё равно придут из API при первом refresh, а
-          // lessons/grades/marks не трогаем.
+          // homeworks успела пожить в нескольких несовместимых схемах.
+          // ALTER-ми это чинить бессмысленно — дропаем и создаём заново.
           await db.execute('DROP TABLE IF EXISTS $tableHomeworks');
           await _createHomeworksTable(db);
         }
         if (oldVersion < 7) {
-          // marks получили work_type (тип работы для оценки).
-          await db.execute(
-            'ALTER TABLE $tableMarks ADD COLUMN work_type TEXT',
-          );
+          await _createTeachersTable(db);
+        }
+        if (oldVersion < 9) {
+          // lessons получили teacher_id (числовой id учителя) — нужно,
+          // чтобы понять, какие учителя ведут у текущего ученика.
+          if (!await _columnExists(db, tableLessons, 'teacher_id')) {
+            await db.execute(
+              'ALTER TABLE $tableLessons ADD COLUMN teacher_id INTEGER',
+            );
+          }
         }
       },
     );
+  }
+
+  Future<bool> _columnExists(Database db, String table, String column) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    return rows.any((r) => r['name'] == column);
   }
 
   Future<void> _createAll(Database db) async {
@@ -98,6 +108,7 @@ class AppDatabase {
         end_time TEXT NOT NULL,
         subject TEXT NOT NULL,
         teacher TEXT,
+        teacher_id INTEGER,
         room TEXT,
         homework TEXT,
         updated_at TEXT NOT NULL
@@ -106,8 +117,6 @@ class AppDatabase {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_lessons_date ON $tableLessons(year_id, date)',
     );
-
-    await _createHomeworksTable(db);
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableGrades (
@@ -140,24 +149,26 @@ class AppDatabase {
     );
 
     await _createMarksTable(db);
+    await _createHomeworksTable(db);
+    await _createTeachersTable(db);
   }
 
   Future<void> _createMarksTable(Database db) async {
     await db.execute('''
-    CREATE TABLE IF NOT EXISTS $tableMarks (
-      id INTEGER PRIMARY KEY,
-      year_id INTEGER NOT NULL,
-      date TEXT NOT NULL,
-      value INTEGER NOT NULL,
-      subject_id INTEGER,
-      created_at TEXT,
-      schedule_lesson_id INTEGER,
-      group_id INTEGER,
-      teacher_id INTEGER,
-      work_type TEXT,
-      updated_at TEXT NOT NULL
-    )
-  ''');
+      CREATE TABLE IF NOT EXISTS $tableMarks (
+        id INTEGER PRIMARY KEY,
+        year_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        value INTEGER NOT NULL,
+        subject_id INTEGER,
+        created_at TEXT,
+        schedule_lesson_id INTEGER,
+        group_id INTEGER,
+        teacher_id INTEGER,
+        work_type TEXT,
+        updated_at TEXT NOT NULL
+      )
+    ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_marks_week ON $tableMarks(year_id, date)',
     );
@@ -189,6 +200,31 @@ class AppDatabase {
     );
   }
 
+  Future<void> _createTeachersTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableTeachers (
+        id INTEGER NOT NULL,
+        year_id INTEGER NOT NULL,
+        full_name TEXT NOT NULL,
+        workload INTEGER NOT NULL DEFAULT 0,
+        hired_at TEXT,
+        is_newcomer INTEGER NOT NULL DEFAULT 0,
+        building_name TEXT,
+        building_address TEXT,
+        roles_json TEXT NOT NULL DEFAULT '[]',
+        subjects_json TEXT NOT NULL DEFAULT '[]',
+        managed_classes_json TEXT NOT NULL DEFAULT '[]',
+        rooms_json TEXT NOT NULL DEFAULT '[]',
+        owned_room_ids_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (id, year_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_teachers_year ON $tableTeachers(year_id)',
+    );
+  }
+
   Future<void> clearAll() async {
     final db = await database;
     await db.delete(tableLessons);
@@ -196,5 +232,6 @@ class AppDatabase {
     await db.delete(tableGradeHistory);
     await db.delete(tableMarks);
     await db.delete(tableHomeworks);
+    await db.delete(tableTeachers);
   }
 }
