@@ -20,6 +20,7 @@ import '../services/auth_service.dart';
 import '../services/session_expired_exception.dart';
 import '../core/auth/token_storage.dart';
 import '../core/settings/homework_prefs.dart';
+import '../core/backend/backends_prefs.dart';
 
 class HomeController extends ChangeNotifier {
   HomeController({
@@ -136,6 +137,12 @@ class HomeController extends ChangeNotifier {
     _ => false,
   };
 
+  bool get anyLoading =>
+      _profileLoading ||
+      _gradesLoading ||
+      _scheduleLoading ||
+      _homeworksLoading;
+
   String? get profileErrorForView => _profile == null ? _profileError : null;
   String? get gradesErrorForView =>
       (_grades == null || _grades!.isEmpty) ? _gradesError : null;
@@ -150,6 +157,7 @@ class HomeController extends ChangeNotifier {
     await _tokenStorage.save(_tokens);
     await SchedulePrefs.load();
     await HomeworkPrefs.load();
+    await BackendPrefs.load();
     await _loadCachedAll();
     await refreshAll();
   }

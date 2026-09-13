@@ -77,6 +77,16 @@ class CacheService {
     );
   }
 
+  Future<void> saveString(String key, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
+  }
+
+  Future<String?> loadString(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(key);
+  }
+
   /// Сносит всё, что мы положили, кроме темы оформления (она не
   /// относится к данным пользователя). Используется при logout.
   Future<void> clearAll() async {

@@ -3,6 +3,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../core/auth/session_notifier.dart';
 import '../core/auth/token_storage.dart';
+import '../core/backend/backends.dart';
+import '../core/backend/backends_prefs.dart';
 import '../core/cache/cache_service.dart';
 import '../core/db/app_database.dart';
 import '../core/settings/schedule_prefs.dart';
@@ -43,9 +45,6 @@ class SettingsScreen extends StatelessWidget {
     if (confirmed != true) return;
     if (!context.mounted) return;
 
-    // 1. Куки WebView — самое главное. Если их не снести, при следующем
-    //    логине WebView загрузит ЭПОС с уже залогиненной сессией, тут же
-    //    отдаст те же куки, и «новый» логин на самом деле будет старым.
     try {
       await WebViewCookieManager().clearCookies();
     } catch (_) {
@@ -53,7 +52,6 @@ class SettingsScreen extends StatelessWidget {
       // будет очищен, а LoginScreen загрузит форму входа.
     }
 
-    // 2. Токены, кэши, флаг сессии.
     await TokenStorage().clear();
     await CacheService().clearAll();
     await AppDatabase.instance.clearAll();
@@ -65,6 +63,48 @@ class SettingsScreen extends StatelessWidget {
         builder: (_) => LoginScreen(themeController: themeController),
       ),
           (route) => false,
+    );
+  }
+
+  /// Диалог выбора источника данных. Пока реально доступен только ЭПОС;
+  /// «Моя школа» показывается, но заблокирована — чтобы точка расширения
+  /// была видна сразу и не забылась.
+  Future<void> _pickBackend(BuildContext context) async {
+    final currentId = BackendPrefs.current.value;
+
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Endpoint service'),
+        children: [
+          for (final b in Backends.all)
+            RadioListTile<String>(
+              title: Text(b.displayName),
+              subtitle: Text(b.description),
+              value: b.id,
+              groupValue: currentId,
+              // onChanged=null выключает тайл — визуально видно,
+              // что пункт недоступен.
+              onChanged:
+              b.available ? (v) => Navigator.of(ctx).pop(v) : null,
+            ),
+        ],
+      ),
+    );
+
+    if (chosen == null || chosen == currentId) return;
+
+    // Сюда мы попадём только если «Мою школу» когда-нибудь включат.
+    // На этот момент смена источника данных означает другой auth —
+    // надо будет сбросить токены и заставить юзера войти заново.
+    // Пока это TODO: реализуем вместе с настоящим MySchoolAuth.
+    await BackendPrefs.set(chosen);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Источник данных: ${Backends.byId(chosen).displayName}'),
+        behavior: SnackBarBehavior.floating,
+      ),
     );
   }
 
@@ -125,6 +165,26 @@ class SettingsScreen extends StatelessWidget {
                   value: merge,
                   onChanged: SchedulePrefs.setMergePairs,
                 ),
+              ),
+              const Divider(height: 32),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Источник данных',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              ValueListenableBuilder<String>(
+                valueListenable: BackendPrefs.current,
+                builder: (context, currentId, _) {
+                  final info = Backends.byId(currentId);
+                  return ListTile(
+                    title: const Text('Endpoint service'),
+                    subtitle: Text(info.displayName),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _pickBackend(context),
+                  );
+                },
               ),
               const Divider(height: 32),
               const Padding(

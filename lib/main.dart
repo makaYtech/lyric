@@ -1,5 +1,7 @@
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/auth/token_storage.dart';
 import 'core/theme/theme_controller.dart';
@@ -9,6 +11,10 @@ import 'services/auth_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (Platform.isWindows || Platform.isLinux) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
   final themeController = await ThemeController.load();
   // Токены могли остаться с прошлого запуска. Если есть — сразу Home,
   // никакого WebView: если сервер скажет «сессия истекла», SessionNotifier

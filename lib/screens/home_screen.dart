@@ -197,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (_session.needsAuth) {
                 _showReauthSheet();
               } else {
-                _controller.refreshCurrentTab();
+                _controller.refreshAll();
               }
             },
           ),
@@ -260,7 +260,7 @@ class _BottomBar extends StatelessWidget {
             ),
             _TrailingAction(
               needsAuth: needsAuth,
-              isLoading: controller.currentLoading,
+              isLoading: controller.anyLoading,
               onPressed: onRefreshTap,
             ),
           ],
@@ -303,7 +303,7 @@ class _TrailingAction extends StatelessWidget {
     } else {
       child = IconButton(
         icon: const Icon(Icons.refresh),
-        tooltip: 'Обновить',
+        tooltip: 'Обновить всё',
         onPressed: onPressed,
       );
     }
