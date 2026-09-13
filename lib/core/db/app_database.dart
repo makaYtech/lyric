@@ -16,7 +16,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 6;
+  static const _version = 7;
 
   static const tableHomeworks = 'homeworks';
   static const tableLessons = 'lessons';
@@ -78,6 +78,12 @@ class AppDatabase {
           await db.execute('DROP TABLE IF EXISTS $tableHomeworks');
           await _createHomeworksTable(db);
         }
+        if (oldVersion < 7) {
+          // marks получили work_type (тип работы для оценки).
+          await db.execute(
+            'ALTER TABLE $tableMarks ADD COLUMN work_type TEXT',
+          );
+        }
       },
     );
   }
@@ -138,19 +144,20 @@ class AppDatabase {
 
   Future<void> _createMarksTable(Database db) async {
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS $tableMarks (
-        id INTEGER PRIMARY KEY,
-        year_id INTEGER NOT NULL,
-        date TEXT NOT NULL,
-        value INTEGER NOT NULL,
-        subject_id INTEGER,
-        created_at TEXT,
-        schedule_lesson_id INTEGER,
-        group_id INTEGER,
-        teacher_id INTEGER,
-        updated_at TEXT NOT NULL
-      )
-    ''');
+    CREATE TABLE IF NOT EXISTS $tableMarks (
+      id INTEGER PRIMARY KEY,
+      year_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      value INTEGER NOT NULL,
+      subject_id INTEGER,
+      created_at TEXT,
+      schedule_lesson_id INTEGER,
+      group_id INTEGER,
+      teacher_id INTEGER,
+      work_type TEXT,
+      updated_at TEXT NOT NULL
+    )
+  ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_marks_week ON $tableMarks(year_id, date)',
     );

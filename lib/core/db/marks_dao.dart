@@ -41,6 +41,7 @@ class MarksDao {
             'group_id': m.groupId,
             'teacher_id': m.teacherId,
             'updated_at': now,
+            'work_type': m.workType,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
@@ -87,6 +88,7 @@ class MarksDao {
       scheduleLessonId: r['schedule_lesson_id'] as int?,
       groupId: r['group_id'] as int?,
       teacherId: r['teacher_id'] as int?,
+      workType: r['work_type'] as String?,
     );
   }
 }

@@ -1,17 +1,27 @@
+import 'day_schedule.dart';
 import 'lesson.dart';
 import 'mark.dart';
+import 'subject_grade.dart';
 
-/// Одна оценка на уроке — значение + когда её получили.
+/// Одна оценка на уроке — значение, когда получили и (опционально)
+/// тип работы.
 class LessonGrade {
   final int value;
   final DateTime? receivedAt;
-  const LessonGrade(this.value, this.receivedAt);
+  final String? workType;
+
+  const LessonGrade(this.value, this.receivedAt, {this.workType});
 }
 
 /// Быстрый поиск оценок по id урока из schedule_items
 /// (Mark.scheduleLessonId == Lesson.id).
 /// У пары уроков (mergeLessonPairs) secondaryId — id второго урока,
 /// поэтому его оценки тоже подтягиваются.
+///
+/// /core/api/marks не отдаёт человеческое название типа работы —
+/// только control_form_id, который нам не с чем сопоставить. Поэтому
+/// тип работы резолвится матчем с /reports/api/progress/json по
+/// имени предмета (через урок) + значению оценки + ближайшей дате.
 class LessonGradesLookup {
   final Map<int, List<LessonGrade>> _byLessonId;
 
@@ -19,16 +29,45 @@ class LessonGradesLookup {
 
   static const empty = LessonGradesLookup._({});
 
-  factory LessonGradesLookup.fromMarks(List<Mark>? marks) {
+  factory LessonGradesLookup.fromMarks(
+      List<Mark>? marks, {
+        List<DaySchedule>? schedule,
+        List<SubjectGrade>? grades,
+      }) {
     if (marks == null || marks.isEmpty) return empty;
+
+    // lessonId → имя предмета. Из расписания — потому что у marks
+    // есть только subject_id, а он в разных ручках ЭПОСа, похоже,
+    // из разных пространств.
+    final lessonSubject = <int, String>{};
+    if (schedule != null) {
+      for (final day in schedule) {
+        for (final l in day.lessons) {
+          if (l.id != null) lessonSubject[l.id!] = l.subject;
+        }
+      }
+    }
+
+    // имя предмета → SubjectGrade для матча workType.
+    final subjectByName = <String, SubjectGrade>{};
+    if (grades != null) {
+      for (final g in grades) subjectByName[g.name] = g;
+    }
+
     final map = <int, List<LessonGrade>>{};
     for (final m in marks) {
       final id = m.scheduleLessonId;
       if (id == null) continue;
+      final workType = m.workType ??
+          _resolveWorkType(
+            m,
+            subjectName: lessonSubject[id],
+            subjectByName: subjectByName,
+          );
       map.putIfAbsent(id, () => <LessonGrade>[])
-          .add(LessonGrade(m.value, m.createdAt));
+          .add(LessonGrade(m.value, m.createdAt, workType: workType));
     }
-    // Внутри урока — по возрастанию времени получения.
+
     for (final list in map.values) {
       list.sort((a, b) {
         final ad = a.receivedAt, bd = b.receivedAt;
@@ -39,6 +78,51 @@ class LessonGradesLookup {
       });
     }
     return LessonGradesLookup._(map);
+  }
+
+  /// Ищем тип работы по имени предмета + значению оценки + дате.
+  ///
+  /// Внутри SubjectGrade могут быть несколько оценок с одинаковым
+  /// значением (две «5» в контрольной и в домашней). Тогда берём ту,
+  /// чья дата ближе всего к дате получения марки. Если дат нет вообще
+  /// — отдаём первый найденный workType.
+  static String? _resolveWorkType(
+      Mark mark, {
+        String? subjectName,
+        required Map<String, SubjectGrade> subjectByName,
+      }) {
+    if (subjectName == null) return null;
+    final subject = subjectByName[subjectName];
+    if (subject == null) return null;
+
+    final candidates = <_WorkTypeCandidate>[];
+    for (final period in subject.periods) {
+      for (final wt in period.workTypes) {
+        for (var i = 0; i < wt.grades.length; i++) {
+          if (wt.grades[i] != mark.value) continue;
+          candidates.add(_WorkTypeCandidate(
+            workType: wt.workType,
+            date: wt.dateAt(i),
+          ));
+        }
+      }
+    }
+    if (candidates.isEmpty) return null;
+    if (candidates.length == 1) return candidates.first.workType;
+
+    final target = mark.createdAt ?? mark.date;
+    if (target == null) return candidates.first.workType;
+
+    candidates.sort((a, b) {
+      final da = a.date == null
+          ? const Duration(days: 99999)
+          : a.date!.difference(target).abs();
+      final db = b.date == null
+          ? const Duration(days: 99999)
+          : b.date!.difference(target).abs();
+      return da.compareTo(db);
+    });
+    return candidates.first.workType;
   }
 
   List<LessonGrade> forLesson(Lesson lesson) {
@@ -56,4 +140,10 @@ class LessonGradesLookup {
     }
     return result;
   }
+}
+
+class _WorkTypeCandidate {
+  final String workType;
+  final DateTime? date;
+  const _WorkTypeCandidate({required this.workType, this.date});
 }

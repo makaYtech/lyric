@@ -135,6 +135,8 @@ class LessonCard extends StatelessWidget {
                           context,
                           value: g.value,
                           receivedAt: g.receivedAt,
+                          subject: lesson.subject,
+                          workType: g.workType,
                         ),
                       ),
                   ],

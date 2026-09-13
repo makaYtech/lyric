@@ -186,10 +186,16 @@ class SubjectGrade {
   final List<PeriodGrades> periods;
   final double? apiAverage;
 
+  /// Числовой id предмета из API. Нужен, чтобы матчить оценки из
+  /// /core/api/marks (у них есть только subject_id, без имени) с
+  /// типами работ из /reports/api/progress/json.
+  final int? subjectId;
+
   const SubjectGrade({
     required this.name,
     required this.periods,
     this.apiAverage,
+    this.subjectId,
   });
 
   double? get average {
@@ -215,6 +221,7 @@ class SubjectGrade {
     'name': name,
     'periods': periods.map((p) => p.toJson()).toList(),
     'api_average': apiAverage,
+    'subject_id': subjectId,
   };
 
   factory SubjectGrade.fromCache(Map<String, dynamic> json) {
@@ -231,6 +238,7 @@ class SubjectGrade {
           .map(PeriodGrades.fromCache)
           .toList(),
       apiAverage: avg,
+      subjectId: json['subject_id'] as int?,
     );
   }
 
@@ -249,6 +257,7 @@ class SubjectGrade {
           .map(PeriodGrades.fromApi)
           .toList(),
       apiAverage: avg,
+      subjectId: json['subject_id'] as int?,
     );
   }
 }

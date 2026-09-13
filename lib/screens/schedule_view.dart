@@ -4,12 +4,18 @@ import '../core/util/labels.dart';
 import '../models/day_schedule.dart';
 import '../models/lesson_grades.dart';
 import '../models/mark.dart';
+import '../models/subject_grade.dart';
 import '../widgets/common/async_state_view.dart';
 import '../widgets/schedule/day_schedule_card.dart';
 
 class ScheduleView extends StatefulWidget {
   final List<DaySchedule>? schedule;
   final List<Mark>? marks;
+
+  /// Оценки с вкладки Оценки — нужны для резолва типа работы
+  /// у marks (в /core/api/marks его нет, только control_form_id).
+  final List<SubjectGrade>? grades;
+
   final bool isLoading;
   final String? error;
   final DateTime weekStart;
@@ -20,6 +26,7 @@ class ScheduleView extends StatefulWidget {
     super.key,
     required this.schedule,
     this.marks,
+    this.grades,
     required this.isLoading,
     required this.error,
     required this.weekStart,
@@ -43,14 +50,24 @@ class _ScheduleViewState extends State<ScheduleView> {
   @override
   void initState() {
     super.initState();
-    _gradesLookup = LessonGradesLookup.fromMarks(widget.marks);
+    _gradesLookup = LessonGradesLookup.fromMarks(
+      widget.marks,
+      schedule: widget.schedule,
+      grades: widget.grades,
+    );
   }
 
   @override
   void didUpdateWidget(covariant ScheduleView oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(oldWidget.marks, widget.marks)) {
-      _gradesLookup = LessonGradesLookup.fromMarks(widget.marks);
+    if (!identical(oldWidget.marks, widget.marks) ||
+        !identical(oldWidget.schedule, widget.schedule) ||
+        !identical(oldWidget.grades, widget.grades)) {
+      _gradesLookup = LessonGradesLookup.fromMarks(
+        widget.marks,
+        schedule: widget.schedule,
+        grades: widget.grades,
+      );
     }
   }
 

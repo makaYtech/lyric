@@ -63,9 +63,18 @@ Future<void> showGradeDetails(
       required int value,
       required DateTime? receivedAt,
       String? comment,
+      String? subject,
+      String? workType,
     }) {
+  print('GRADE: subject=$subject workType=$workType comment=$comment');
   final theme = Theme.of(context);
   final hasComment = comment != null && comment.trim().isNotEmpty;
+  final hasSubject = subject != null && subject.trim().isNotEmpty;
+  final hasWorkType = workType != null && workType.trim().isNotEmpty;
+  final subtitleParts = <String>[
+    if (hasSubject) subject.trim(),
+    if (hasWorkType) workType.trim(),
+  ];
 
   return showModalBottomSheet<void>(
     context: context,
@@ -83,10 +92,30 @@ Future<void> showGradeDetails(
               children: [
                 GradeDot(value: value, size: 40),
                 const SizedBox(width: 12),
-                Text(
-                  'Оценка',
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w600,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Оценка',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      // Подзаголовок: «Алгебра · Контрольная работа».
+                      // Появляется, только если снаружи передали subject
+                      // и/или workType.
+                      if (subtitleParts.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            subtitleParts.join(' · '),
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ],

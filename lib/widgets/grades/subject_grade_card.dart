@@ -5,9 +5,6 @@ import '../common/grade_dot.dart';
 
 class SubjectGradeCard extends StatelessWidget {
   final SubjectGrade grade;
-
-  /// Если задан — карточка показывает только этот период.
-  /// Если null — показывает все workTypes из всех периодов.
   final String? selectedPeriod;
 
   const SubjectGradeCard({
@@ -27,9 +24,7 @@ class SubjectGradeCard extends StatelessWidget {
     final workTypes = period?.workTypes ??
         grade.periods.expand((p) => p.workTypes).toList();
     final avg = period?.average ?? grade.average;
-    final allGrades = period?.allGrades ?? grade.allGrades;
-    final allDates = period?.allDates ?? grade.allDates;
-    final allComments = period?.allComments ?? grade.allComments;
+    final entries = _collectEntries(workTypes);
     final avgColor = _averageColor(avg);
 
     return Card(
@@ -57,9 +52,8 @@ class SubjectGradeCard extends StatelessWidget {
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 6),
             child: _MiniGradesRow(
-              grades: allGrades,
-              dates: allDates,
-              comments: allComments,
+              entries: entries,
+              subject: grade.name,
             ),
           ),
           children: [
@@ -76,11 +70,33 @@ class SubjectGradeCard extends StatelessWidget {
                 ),
               )
             else
-              ...workTypes.map((w) => _WorkTypeRow(workType: w)),
+              ...workTypes.map((w) => _WorkTypeRow(
+                workType: w,
+                subject: grade.name,
+              )),
           ],
         ),
       ),
     );
+  }
+
+  /// Собираем плоский список оценок с сохранением типа работы каждой.
+  /// Раньше использовали period.allGrades — там был просто List<int>,
+  /// и привязка к workType терялась. Теперь каждая оценка идёт вместе
+  /// со своим workType, датой и комментарием.
+  static List<_MiniGradeEntry> _collectEntries(List<WorkTypeGrades> workTypes) {
+    final out = <_MiniGradeEntry>[];
+    for (final w in workTypes) {
+      for (var i = 0; i < w.grades.length; i++) {
+        out.add(_MiniGradeEntry(
+          value: w.grades[i],
+          receivedAt: i < w.dates.length ? w.dates[i] : null,
+          comment: w.commentAt(i),
+          workType: w.workType,
+        ));
+      }
+    }
+    return out;
   }
 
   Color _averageColor(double? avg) {
@@ -90,6 +106,21 @@ class SubjectGradeCard extends StatelessWidget {
     if (avg >= 2.5) return Colors.orange;
     return Colors.red;
   }
+}
+
+/// Одна оценка в мини-строке, со всеми сопутствующими данными.
+class _MiniGradeEntry {
+  final int value;
+  final DateTime? receivedAt;
+  final String? comment;
+  final String? workType;
+
+  const _MiniGradeEntry({
+    required this.value,
+    this.receivedAt,
+    this.comment,
+    this.workType,
+  });
 }
 
 class _AverageBadge extends StatelessWidget {
@@ -117,53 +148,44 @@ class _AverageBadge extends StatelessWidget {
 }
 
 class _MiniGradesRow extends StatelessWidget {
-  final List<int> grades;
-  final List<DateTime?> dates;
-  final List<String?> comments;
+  final List<_MiniGradeEntry> entries;
+  final String? subject;
 
   const _MiniGradesRow({
-    required this.grades,
-    this.dates = const [],
-    this.comments = const [],
+    required this.entries,
+    this.subject,
   });
-
-  /// Достаёт i-й элемент, если он есть и совпадает по типу с ожидаемым.
-  /// Принимает List<Object?>, чтобы не спотыкаться о вывод типов
-  /// (List<DateTime?> / List<String?> отлично сюда подходят).
-  T? _at<T>(List<Object?> list, int i) {
-    if (i < 0 || i >= list.length) return null;
-    final v = list[i];
-    return v is T ? v : null;
-  }
 
   @override
   Widget build(BuildContext context) {
-    if (grades.isEmpty) {
+    if (entries.isEmpty) {
       return Text('Нет оценок',
           style: Theme.of(context).textTheme.bodySmall);
     }
-    final start = grades.length > 8 ? grades.length - 8 : 0;
-    final shown = grades.sublist(start);
+    final start = entries.length > 8 ? entries.length - 8 : 0;
+    final shown = entries.sublist(start);
     return Row(
       children: [
-        for (var i = 0; i < shown.length; i++)
+        for (final e in shown)
           Padding(
             padding: const EdgeInsets.only(right: 4),
             child: GradeDot(
-              value: shown[i],
+              value: e.value,
               size: 22,
               onTap: () => showGradeDetails(
                 context,
-                value: shown[i],
-                receivedAt: _at<DateTime>(dates, start + i),
-                comment: _at<String>(comments, start + i),
+                value: e.value,
+                receivedAt: e.receivedAt,
+                comment: e.comment,
+                subject: subject,
+                workType: e.workType,
               ),
             ),
           ),
-        if (grades.length > 8)
+        if (entries.length > 8)
           Padding(
             padding: const EdgeInsets.only(left: 4),
-            child: Text('+${grades.length - 8}',
+            child: Text('+${entries.length - 8}',
                 style: Theme.of(context).textTheme.bodySmall),
           ),
       ],
@@ -173,7 +195,9 @@ class _MiniGradesRow extends StatelessWidget {
 
 class _WorkTypeRow extends StatelessWidget {
   final WorkTypeGrades workType;
-  const _WorkTypeRow({required this.workType});
+  final String? subject;
+
+  const _WorkTypeRow({required this.workType, this.subject});
 
   @override
   Widget build(BuildContext context) {
@@ -217,6 +241,8 @@ class _WorkTypeRow extends StatelessWidget {
                     value: workType.grades[i],
                     receivedAt: workType.dateAt(i),
                     comment: workType.commentAt(i),
+                    subject: subject,
+                    workType: workType.workType,
                   ),
                 ),
             ],

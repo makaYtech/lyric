@@ -174,6 +174,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ScheduleView(
                 schedule: _controller.schedule,
                 marks: _controller.marks,
+                grades: _controller.grades,
                 isLoading: _controller.scheduleLoading,
                 error: _controller.scheduleErrorForView,
                 weekStart: _controller.weekStart,

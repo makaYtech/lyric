@@ -1,11 +1,5 @@
 import '../core/util/date_time.dart';
 
-/// Одна оценка из /core/api/marks.
-/// Ключевое, что здесь есть и чего нет в progress/json:
-/// - schedule_lesson_id — прямая ссылка на урок из schedule_items;
-/// - created_at — когда выставлена ("dd.MM.yyyy HH:mm", НЕ ISO);
-/// - date — дата урока, к которой привязана оценка;
-/// - subject_id — числовой id предмета.
 class Mark {
   final int id;
   final int value;
@@ -16,6 +10,12 @@ class Mark {
   final int? groupId;
   final int? teacherId;
 
+  /// Тип работы (контрольная, домашняя, ...) — если API его отдаёт.
+  /// Имена полей в ответе ЭПОСа мы точно не знаем, поэтому пробуем
+  /// несколько вероятных ключей. Если ничего не найдётся — null,
+  /// шторка оценки просто не покажет вторую строку.
+  final String? workType;
+
   const Mark({
     required this.id,
     required this.value,
@@ -25,6 +25,7 @@ class Mark {
     this.scheduleLessonId,
     this.groupId,
     this.teacherId,
+    this.workType,
   });
 
   factory Mark.fromJson(Map<String, dynamic> json) => Mark(
@@ -36,7 +37,35 @@ class Mark {
     scheduleLessonId: json['schedule_lesson_id'] as int?,
     groupId: json['group_id'] as int?,
     teacherId: json['teacher_id'] as int?,
+    workType: _extractWorkType(json),
   );
+  static String? _extractWorkType(Map<String, dynamic> json) {
+    final candidates = <Object?>[
+      json['control_form_name'],
+      json['work_type'],
+      json['work_type_name'],
+      json['control_form'],
+      json['form_name'],
+    ];
+    // На всякий случай — вдруг тип работы лежит внутри values[].
+    final values = json['values'];
+    if (values is List) {
+      for (final v in values.whereType<Map<String, dynamic>>()) {
+        candidates.addAll([
+          v['control_form_name'],
+          v['work_type'],
+          v['control_form'],
+        ]);
+      }
+    }
+    for (final c in candidates) {
+      if (c is String) {
+        final t = c.trim();
+        if (t.isNotEmpty) return t;
+      }
+    }
+    return null;
+  }
 
   static int _extractValue(Map<String, dynamic> json) {
     final values = json['values'];
