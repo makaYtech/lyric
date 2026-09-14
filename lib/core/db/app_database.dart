@@ -125,7 +125,8 @@ class AppDatabase {
         teacher_id INTEGER,
         room TEXT,
         homework TEXT,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        attachments_json TEXT NOT NULL DEFAULT '[]',
       )
     ''');
     await db.execute(
@@ -149,23 +150,6 @@ class AppDatabase {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_grades_year ON $tableGrades(year_id)',
     );
-
-    await db.execute('''
-  CREATE TABLE IF NOT EXISTS $tableLessons (
-    id INTEGER PRIMARY KEY,
-    year_id INTEGER NOT NULL,
-    date TEXT NOT NULL,
-    start_time TEXT NOT NULL,
-    end_time TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    teacher TEXT,
-    teacher_id INTEGER,
-    room TEXT,
-    homework TEXT,
-    attachments_json TEXT NOT NULL DEFAULT '[]',
-    updated_at TEXT NOT NULL
-  )
-''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableGradeHistory (

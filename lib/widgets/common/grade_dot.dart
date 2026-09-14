@@ -66,7 +66,6 @@ Future<void> showGradeDetails(
       String? subject,
       String? workType,
     }) {
-  print('GRADE: subject=$subject workType=$workType comment=$comment');
   final theme = Theme.of(context);
   final hasComment = comment != null && comment.trim().isNotEmpty;
   final hasSubject = subject != null && subject.trim().isNotEmpty;
