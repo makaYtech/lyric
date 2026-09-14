@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../core/auth/session_notifier.dart';
-import '../core/auth/token_storage.dart';
+import '../core/auth/session_refresh_service.dart';
 import '../core/backend/backends.dart';
 import '../core/backend/backends_prefs.dart';
 import '../core/cache/cache_service.dart';
@@ -15,15 +15,13 @@ import '../core/util/names.dart';
 import '../models/teacher.dart';
 import '../widgets/common/person_avatar.dart';
 import 'login_screen.dart';
+import '../core/auth/myschool_token_storage.dart';
 
 class SettingsScreen extends StatelessWidget {
   final ThemeController themeController;
 
-  /// Ключ локальной аватарки ученика. Если null — пункт сброса скрыт.
   final String? studentAvatarKey;
 
-  /// Список учителей — для сброса их аватарок. Если null/пусто —
-  /// пункт сброса учительских аватарок не показывается.
   final List<Teacher>? teachers;
 
   const SettingsScreen({
@@ -68,7 +66,7 @@ class SettingsScreen extends StatelessWidget {
       // Не критично.
     }
 
-    await TokenStorage().clear();
+    await SessionRefreshService.instance.clear();
     await CacheService().clearAll();
     await AppDatabase.instance.clearAll();
     SessionNotifier.instance.reset();
@@ -96,8 +94,7 @@ class SettingsScreen extends StatelessWidget {
               subtitle: Text(b.description),
               value: b.id,
               groupValue: currentId,
-              onChanged:
-              b.available ? (v) => Navigator.of(ctx).pop(v) : null,
+              onChanged: b.available ? (v) => Navigator.of(ctx).pop(v) : null,
             ),
         ],
       ),
@@ -106,12 +103,15 @@ class SettingsScreen extends StatelessWidget {
     if (chosen == null || chosen == currentId) return;
 
     await BackendPrefs.set(chosen);
+
+    await SessionRefreshService.instance.clear();
+    await MySchoolTokenStorage().clear();
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Источник данных: ${Backends.byId(chosen).displayName}'),
-        behavior: SnackBarBehavior.floating,
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => LoginScreen(themeController: themeController),
       ),
+          (route) => false,
     );
   }
 
@@ -187,8 +187,6 @@ class SettingsScreen extends StatelessWidget {
       builder: (ctx) => SimpleDialog(
         title: const Text('Сбросить аватар учителя'),
         children: [
-          // «Очистить у всех» — отдельным пунктом сверху, визуально
-          // отделён divider'ом от списка конкретных учителей.
           ListTile(
             leading: const Icon(Icons.delete_sweep_outlined),
             title: const Text('Очистить у всех'),
@@ -273,12 +271,8 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  /// Сентинел для «Очистить у всех»: отличает выбор учителя от нажатия
-  /// на пункт «Очистить у всех» в том же диалоге. ListTile и Teacher
-  /// сравнивать напрямую нельзя, поэтому шлём через pop особый маркер.
   static final _clearAllTeachersSentinel = Object();
 
-  /// «1 учитель» / «2 учителя» / «5 учителей» — для сообщения в диалоге.
   String _pluralTeachers(int n) {
     final mod10 = n % 10;
     final mod100 = n % 100;

@@ -3,11 +3,16 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'core/auth/token_storage.dart';
+import 'core/auth/epos_session.dart';
+import 'core/auth/myschool_token_storage.dart';
+import 'core/auth/session_refresh_service.dart';
+import 'core/backend/backends.dart';
+import 'core/backend/backends_prefs.dart';
 import 'core/theme/theme_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
-import 'services/auth_service.dart';
+import 'screens/myschool_home_screen.dart';
+import 'services/myschool/myschool_tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,37 +21,66 @@ Future<void> main() async {
     databaseFactory = databaseFactoryFfi;
   }
   final themeController = await ThemeController.load();
-  // Токены могли остаться с прошлого запуска. Если есть — сразу Home,
-  // никакого WebView: если сервер скажет «сессия истекла», SessionNotifier
-  // сам выкатит модалку с re-auth.
-  final initialTokens = await TokenStorage().load();
+  await BackendPrefs.load();
+
+  if (BackendPrefs.current.value == Backends.mySchool) {
+    final msTokens = await MySchoolTokenStorage().load();
+    runApp(EposApp(
+      themeController: themeController,
+      initialEposSession: null,
+      initialMySchoolTokens: msTokens,
+    ));
+    return;
+  }
+
+  // Пробуем поднять сессию из защищённого хранилища.
+  // Если refresh_token жив — ensureFresh тихо обновит access,
+  // если мёртв — вернёт null, и покажем LoginScreen.
+  EposSession? session = await SessionRefreshService.instance.load();
+  if (session != null) {
+    session = await SessionRefreshService.instance.ensureFresh(session);
+  }
+
   runApp(EposApp(
     themeController: themeController,
-    initialTokens: initialTokens,
+    initialEposSession: session,
+    initialMySchoolTokens: null,
   ));
 }
 
 class EposApp extends StatelessWidget {
   final ThemeController themeController;
-  final EposTokens? initialTokens;
+  final EposSession? initialEposSession;
+  final MySchoolTokens? initialMySchoolTokens;
 
   const EposApp({
     super.key,
     required this.themeController,
-    required this.initialTokens,
+    required this.initialEposSession,
+    this.initialMySchoolTokens,
   });
 
   @override
   Widget build(BuildContext context) {
-    // DynamicColorBuilder отдаёт lightDynamic/darkDynamic, только если
-    // устройство умеет Material You (Android 12+) и такая тема
-    // действительно настроена. Иначе оба будут null, и мы откатываемся
-    // на обычную сгенерированную схему на основе seedColor.
     return DynamicColorBuilder(
       builder: (lightDynamic, darkDynamic) {
         return AnimatedBuilder(
           animation: themeController,
           builder: (context, _) {
+            Widget home;
+            if (initialMySchoolTokens != null) {
+              home = MySchoolHomeScreen(
+                tokens: initialMySchoolTokens!,
+                themeController: themeController,
+              );
+            } else if (initialEposSession != null) {
+              home = HomeScreen(
+                session: initialEposSession!,
+                themeController: themeController,
+              );
+            } else {
+              home = LoginScreen(themeController: themeController);
+            }
             return MaterialApp(
               title: 'ЭПОС',
               themeMode: themeController.mode,
@@ -64,12 +98,7 @@ class EposApp extends StatelessWidget {
                       brightness: Brightness.dark,
                     ),
               ),
-              home: initialTokens == null
-                  ? LoginScreen(themeController: themeController)
-                  : HomeScreen(
-                tokens: initialTokens!,
-                themeController: themeController,
-              ),
+              home: home,
             );
           },
         );

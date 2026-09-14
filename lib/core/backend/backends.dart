@@ -39,9 +39,9 @@ class Backends {
     BackendInfo(
       id: mySchool,
       displayName: 'Моя школа',
-      description: 'TODO: пока нет доступа к API. Логин и endpoints '
-          'не реализованы.',
-      available: false,
+      description: 'Федеральная «Моя школа» (edu.gosuslugi.ru). '
+          'Вход через Госуслуги.',
+      available: true,
     ),
   ];
 

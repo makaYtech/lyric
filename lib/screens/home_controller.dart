@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
+import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
+import '../core/auth/session_refresh_service.dart';
 import '../core/backend/backends_prefs.dart';
 import '../core/cache/cache_service.dart';
 import '../core/settings/homework_prefs.dart';
@@ -23,11 +25,10 @@ import '../repositories/student_groups_repository.dart';
 import '../repositories/teachers_repository.dart';
 import '../services/auth_service.dart';
 import '../services/session_expired_exception.dart';
-import '../core/auth/token_storage.dart';
 
 class HomeController extends ChangeNotifier {
   HomeController({
-    required EposTokens tokens,
+    required EposSession session,
     required void Function(String message) onError,
     ProfileRepository? profileRepository,
     GradesRepository? gradesRepository,
@@ -38,7 +39,7 @@ class HomeController extends ChangeNotifier {
     HomeworkRepository? homeworkRepository,
     TeachersRepository? teachersRepository,
     CacheService? cache,
-  })  : _tokens = tokens,
+  })  : _session = session,
         _onError = onError,
         _profileRepository = profileRepository ?? ProfileRepository(),
         _gradesRepository = gradesRepository ?? GradesRepository(),
@@ -52,8 +53,9 @@ class HomeController extends ChangeNotifier {
     _weekStart = _currentMonday();
   }
 
-  EposTokens _tokens;
-  EposTokens get tokens => _tokens;
+  EposSession _session;
+  EposSession get session => _session;
+  EposTokens get tokens => _session.tokens;
 
   final void Function(String message) _onError;
 
@@ -66,7 +68,6 @@ class HomeController extends ChangeNotifier {
   final HomeworkRepository _homeworkRepository;
   final TeachersRepository _teachersRepository;
   final CacheService _cache;
-  final TokenStorage _tokenStorage = TokenStorage();
 
   static const _selectedYearKey = 'selected_academic_year_id';
   static const _studentTeacherIdsKey = 'student_teacher_ids';
@@ -88,7 +89,6 @@ class HomeController extends ChangeNotifier {
   String? _profileError;
   String? get profileError => _profileError;
 
-  /// Учителя ученика — из /core/api/teacher_profiles, кэш в SQLite.
   List<Teacher>? _teachers;
   List<Teacher>? get teachers => _teachers;
   DateTime? _teachersUpdated;
@@ -98,9 +98,6 @@ class HomeController extends ChangeNotifier {
   String? _teachersError;
   String? get teachersError => _teachersError;
 
-  /// id учителей, которые ведут у текущего ученика — копится из
-  /// расписания (teacher_id в lesson). Хранится как «1,2,3» в
-  /// SharedPreferences, чтобы переживало перезапуск.
   Set<int> _studentTeacherIds = <int>{};
   Set<int> get studentTeacherIds => _studentTeacherIds;
 
@@ -129,13 +126,9 @@ class HomeController extends ChangeNotifier {
   String? _scheduleError;
   String? get scheduleError => _scheduleError;
 
-  /// Оценки за текущую неделю — для точек на карточках уроков.
-  /// Параллельно живут в SQLite (MarksDao), оффлайн подтягиваются оттуда.
   List<Mark>? _marks;
   List<Mark>? get marks => _marks;
 
-  /// ДЗ за учебный год. В БД — целиком по году, в UI — группируется
-  /// по датам. Оффлайн подтягивается из HomeworkDao.
   List<Homework>? _homeworks;
   List<Homework>? get homeworks => _homeworks;
   DateTime? _homeworksUpdated;
@@ -160,9 +153,6 @@ class HomeController extends ChangeNotifier {
     _ => false,
   };
 
-  /// true, если хоть одна вкладка сейчас грузится. Для нижней кнопки
-  /// «обновить всё» — она запускает параллельно несколько запросов,
-  /// и показывать окончание загрузки по одной текущей вкладке неправильно.
   bool get anyLoading =>
       _profileLoading ||
           _gradesLoading ||
@@ -181,7 +171,6 @@ class HomeController extends ChangeNotifier {
   // ── Жизненный цикл ─────────────────────────────────────────────────────
 
   Future<void> init() async {
-    await _tokenStorage.save(_tokens);
     await SchedulePrefs.load();
     await HomeworkPrefs.load();
     await TeacherPrefs.load();
@@ -207,20 +196,15 @@ class HomeController extends ChangeNotifier {
     _notify();
   }
 
-  Future<void> updateTokens(EposTokens tokens) async {
-    _tokens = tokens;
-    await _tokenStorage.save(tokens);
+  Future<void> updateSession(EposSession session) async {
+    _session = session;
+    await SessionRefreshService.instance.save(session);
     SessionNotifier.instance.clear();
     _notify();
   }
 
   // ── Кэш ────────────────────────────────────────────────────────────────
 
-  /// Загружает всё, что есть в локальном кэше, ДО первого сетевого запроса.
-  /// Два независимых «слоя»: сначала всё, что не зависит от выбранного
-  /// учебного года, потом — то, что зависит. Внутри каждого слоя фьючи
-  /// стартуют параллельно: запросы в SharedPreferences/SQLite не мешают
-  /// друг другу, а последовательный await заметно тормозит холодный старт.
   Future<void> _loadCachedAll() async {
     final profileFut = _profileRepository.loadCached();
     final profileUpdFut = _profileRepository.lastUpdated();
@@ -306,10 +290,28 @@ class HomeController extends ChangeNotifier {
     setLoading(true);
     setError(null);
     _notify();
+
+    Future<void> runBody() => body();
+
     try {
-      await body();
+      await runBody();
     } on SessionExpiredException {
-      SessionNotifier.instance.markExpired();
+      final fresh =
+      await SessionRefreshService.instance.forceRefresh(_session);
+      if (fresh == null) {
+        SessionNotifier.instance.markExpired();
+        return;
+      }
+      _session = fresh;
+      try {
+        await runBody();
+      } on SessionExpiredException {
+        SessionNotifier.instance.markExpired();
+      } catch (e) {
+        if (_disposed) return;
+        setError('Не удалось обновить: $e');
+        if (!silent) _onError(errorToast);
+      }
     } catch (e) {
       if (_disposed) return;
       setError('Не удалось обновить: $e');
@@ -350,7 +352,8 @@ class HomeController extends ChangeNotifier {
     setLoading: (v) => _profileLoading = v,
     setError: (e) => _profileError = e,
     body: () async {
-      final profile = await _profileRepository.refresh(_tokens);
+      final profile =
+      await _profileRepository.refresh(_session.tokens);
       final updated = await _profileRepository.lastUpdated();
       if (_disposed) return;
       _profile = profile;
@@ -360,15 +363,16 @@ class HomeController extends ChangeNotifier {
     silent: silent,
   );
 
-  /// Учителя — реальный запрос + кэш в SQLite. Ошибки глушим, чтобы
-  /// вкладка Профиль не ломалась целиком из-за сбоя в списке учителей.
   Future<void> _refreshTeachers() async {
     _teachersLoading = true;
     _notify();
     try {
-      final list =
-      await _teachersRepository.refresh(_tokens, _selectedYearId);
-      final updated = await _teachersRepository.lastUpdated(_selectedYearId);
+      final list = await _teachersRepository.refresh(
+        _session.tokens,
+        _selectedYearId,
+      );
+      final updated =
+      await _teachersRepository.lastUpdated(_selectedYearId);
       if (_disposed) return;
       _teachers = list;
       _teachersUpdated = updated;
@@ -388,7 +392,7 @@ class HomeController extends ChangeNotifier {
 
   Future<void> _refreshYears() async {
     try {
-      final years = await _yearsRepository.refresh(_tokens);
+      final years = await _yearsRepository.refresh(_session.tokens);
       if (_disposed) return;
 
       var selected = _selectedYearId;
@@ -411,9 +415,12 @@ class HomeController extends ChangeNotifier {
     setLoading: (v) => _gradesLoading = v,
     setError: (e) => _gradesError = e,
     body: () async {
-      final grades =
-      await _gradesRepository.refresh(_tokens, _selectedYearId);
-      final updated = await _gradesRepository.lastUpdated(_selectedYearId);
+      final grades = await _gradesRepository.refresh(
+        _session.tokens,
+        _selectedYearId,
+      );
+      final updated =
+      await _gradesRepository.lastUpdated(_selectedYearId);
       if (_disposed) return;
       _grades = grades;
       _gradesUpdated = updated;
@@ -425,7 +432,7 @@ class HomeController extends ChangeNotifier {
   Future<void> _ensureGroups() async {
     if (_groupIds.isNotEmpty) return;
     try {
-      final groups = await _groupsRepository.refresh(_tokens);
+      final groups = await _groupsRepository.refresh(_session.tokens);
       if (_disposed) return;
       _groupIds = groups.map((g) => g.id).toList();
     } on SessionExpiredException {
@@ -449,13 +456,13 @@ class HomeController extends ChangeNotifier {
 
       final results = await Future.wait<Object>([
         _scheduleRepository.refresh(
-          _tokens,
+          _session.tokens,
           monday,
           _selectedYearId,
           _groupIds,
         ),
         _marksRepository.refresh(
-          _tokens,
+          _session.tokens,
           _selectedYearId,
           from: monday,
           to: sunday,
@@ -469,8 +476,6 @@ class HomeController extends ChangeNotifier {
         _selectedYearId,
       );
 
-      // Собираем id учителей из свежего расписания — они нужны для
-      // фильтра «Только мои учителя» в профиле.
       final newIds = <int>{..._studentTeacherIds};
       for (final day in schedule) {
         for (final l in day.lessons) {
@@ -501,12 +506,13 @@ class HomeController extends ChangeNotifier {
     body: () async {
       final range = _academicYearRange(DateTime.now());
       final homeworks = await _homeworkRepository.refresh(
-        _tokens,
+        _session.tokens,
         _selectedYearId,
         from: range.$1,
         to: range.$2,
       );
-      final updated = await _homeworkRepository.lastUpdated(_selectedYearId);
+      final updated =
+      await _homeworkRepository.lastUpdated(_selectedYearId);
       if (_disposed) return;
       _homeworks = homeworks;
       _homeworksUpdated = updated;
@@ -515,8 +521,6 @@ class HomeController extends ChangeNotifier {
     silent: silent,
   );
 
-  /// Границы учебного года для запроса ДЗ: сентябрь текущего (или
-  /// прошлого, если сейчас ещё лето) .. август следующего.
   static (DateTime, DateTime) _academicYearRange(DateTime today) {
     final year = today.month >= 9 ? today.year : today.year - 1;
     return (DateTime(year, 9, 1), DateTime(year + 1, 8, 31));

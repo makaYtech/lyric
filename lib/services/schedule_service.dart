@@ -2,6 +2,7 @@ import '../core/network/api_client.dart';
 import '../core/util/date_time.dart';
 import '../core/util/names.dart';
 import '../models/day_schedule.dart';
+import '../models/homework_attachment.dart';
 import '../models/lesson.dart';
 import '../models/room_info.dart';
 import '../models/schedule_item.dart';
@@ -43,7 +44,7 @@ class ScheduleService {
       _fetchHomeworks(tokens, monday, sunday, academicYearId),
     ]);
     final items = results[0] as List<ScheduleItem>;
-    final homeworks = results[1] as Map<int, String>;
+    final homeworks = results[1] as Map<int, StudentHomework>;
 
     // Учителя и кабинеты — второй волной, id известны только после первого запроса.
     final teacherIds = items.map((e) => e.teacherId).whereType<int>().toSet();
@@ -72,6 +73,7 @@ class ScheduleService {
           subject: item.subjectName,
           subjectId: item.subjectId,
           homeworks: _homeworkTexts(item.homeworkIds, homeworks),
+          attachments: _homeworkAttachments(item.homeworkIds, homeworks),
           teacher: item.teacherId == null ? null : teachers[item.teacherId],
           teacherId: item.teacherId,
           room: _roomLine(item.roomId, item.roomName, rooms),
@@ -91,14 +93,35 @@ class ScheduleService {
   /// Тексты ДЗ по всем id урока, в порядке homeworks_to_give.
   /// "не задано" (в любом регистре/написании) и пустые строки не попадают
   /// в список — они и так рисуются в UI как "не задано" при пустом списке.
-  List<String> _homeworkTexts(List<int> ids, Map<int, String> map) {
+  List<String> _homeworkTexts(
+      List<int> ids,
+      Map<int, StudentHomework> map,
+      ) {
     final result = <String>[];
     for (final id in ids) {
-      final text = map[id]?.trim();
+      final text = map[id]?.description.trim();
       if (text == null || text.isEmpty) continue;
       final normalized = text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
       if (normalized == 'не задано') continue;
       result.add(text);
+    }
+    return result;
+  }
+
+  /// Собираем вложения со всех ДЗ урока, дедуп по url. Если у одного
+  /// урока три ДЗ и в каждом — свой pdf, в модалке будет три кнопки.
+  List<HomeworkAttachment> _homeworkAttachments(
+      List<int> ids,
+      Map<int, StudentHomework> map,
+      ) {
+    final seen = <String>{};
+    final result = <HomeworkAttachment>[];
+    for (final id in ids) {
+      final hw = map[id];
+      if (hw == null) continue;
+      for (final a in hw.attachments) {
+        if (seen.add(a.url)) result.add(a);
+      }
     }
     return result;
   }
@@ -151,7 +174,7 @@ class ScheduleService {
 
   /// При ошибке тихо возвращаем пустую карту — расписание отрисуется
   /// без ДЗ, это не повод ронять весь экран.
-  Future<Map<int, String>> _fetchHomeworks(
+  Future<Map<int, StudentHomework>> _fetchHomeworks(
       EposTokens tokens,
       DateTime from,
       DateTime to,
@@ -168,10 +191,10 @@ class ScheduleService {
           '&pid=${tokens.profileId}',
     );
     final decoded = await _api.getList(uri, tokens, attempts: 1, silent: true);
-    final map = <int, String>{};
+    final map = <int, StudentHomework>{};
     for (final raw in decoded.whereType<Map<String, dynamic>>()) {
       final hw = StudentHomework.fromJson(raw);
-      if (hw.homeworkId > 0) map[hw.homeworkId] = hw.description;
+      if (hw.homeworkId > 0) map[hw.homeworkId] = hw;
     }
     return map;
   }

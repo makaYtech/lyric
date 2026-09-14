@@ -2,6 +2,8 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../models/homework.dart';
 import 'app_database.dart';
+import 'dart:convert';
+import '../../models/homework_attachment.dart';
 
 /// ДЗ живут по годам: перезаписываем весь год разом. Так проще, чем
 /// по неделям — ДЗ не так много, а диапазон у нас всегда один и тот же
@@ -40,6 +42,9 @@ class HomeworkDao {
             'mark_required': h.markRequired ? 1 : 0,
             'updated_at': now,
             'teacher_name': h.teacherName,
+            'attachments_json': jsonEncode(
+              h.attachments.map((a) => a.toJson()).toList(),
+            ),
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
@@ -88,8 +93,22 @@ class HomeworkDao {
     isRequired: (r['is_required'] as int? ?? 0) == 1,
     markRequired: (r['mark_required'] as int? ?? 0) == 1,
     teacherName: r['teacher_name'] as String?,
+    attachments: _decodeAttachments(r['attachments_json']),
   );
 
   static DateTime? _date(Object? raw) =>
       raw is String ? DateTime.tryParse(raw) : null;
+
+  static List<HomeworkAttachment> _decodeAttachments(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const [];
+    try {
+      return (jsonDecode(raw) as List)
+          .whereType<Map<String, dynamic>>()
+          .map(HomeworkAttachment.fromJson)
+          .where((a) => a.url.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
+  }
 }

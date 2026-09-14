@@ -41,6 +41,9 @@ dependencies:
   sqflite_common_ffi: ^2.3.0
   image_picker: ^1.1.2
   scrollable_positioned_list: ^0.3.8
+  crypto: ^3.0.3
+  flutter_secure_storage: ^9.2.2
+  open_filex: ^4.4.0
 
 dev_dependencies:
   flutter_test:

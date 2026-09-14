@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/homework.dart';
+import '../common/attachment_button.dart';
 import 'homework_details_sheet.dart';
 
 class HomeworkCard extends StatelessWidget {
@@ -34,6 +35,7 @@ class HomeworkCard extends StatelessWidget {
     final theme = Theme.of(context);
     final dim = theme.colorScheme.onSurfaceVariant;
     final subject = homework.subjectName ?? 'Предмет';
+    final hasAttachment = homework.attachments.isNotEmpty;
 
     return Card(
       elevation: 1,
@@ -42,23 +44,42 @@ class HomeworkCard extends StatelessWidget {
       child: InkWell(
         onTap: () => _openDetails(context),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+          padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                subject,
-                style: theme.textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w600),
+              // Верхняя строка: предмет + кнопка «скачать» в правом углу.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        subject,
+                        style: theme.textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                  if (hasAttachment) ...[
+                    const SizedBox(width: 8),
+                    AttachmentButton(
+                      attachments: homework.attachments,
+                      dense: true,
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 2),
               Text(
                 'Дз: ${homework.description}',
                 style: theme.textTheme.bodyMedium,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (homework.assignedAt != null || homework.dueDate != null) ...[
+              if (homework.assignedAt != null ||
+                  homework.dueDate != null) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [

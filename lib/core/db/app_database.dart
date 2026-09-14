@@ -18,7 +18,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 9;
+  static const _version = 10;
 
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
@@ -89,6 +89,20 @@ class AppDatabase {
             );
           }
         }
+        if (oldVersion < 10) {
+          if (!await _columnExists(db, tableLessons, 'attachments_json')) {
+            await db.execute(
+              "ALTER TABLE $tableLessons "
+                  "ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+          if (!await _columnExists(db, tableHomeworks, 'attachments_json')) {
+            await db.execute(
+              "ALTER TABLE $tableHomeworks "
+                  "ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+        }
       },
     );
   }
@@ -135,6 +149,23 @@ class AppDatabase {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_grades_year ON $tableGrades(year_id)',
     );
+
+    await db.execute('''
+  CREATE TABLE IF NOT EXISTS $tableLessons (
+    id INTEGER PRIMARY KEY,
+    year_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    end_time TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    teacher TEXT,
+    teacher_id INTEGER,
+    room TEXT,
+    homework TEXT,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+  )
+''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableGradeHistory (
@@ -198,6 +229,28 @@ class AppDatabase {
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_homeworks_year ON $tableHomeworks(year_id, due_date)',
     );
+
+    await db.execute('''
+  CREATE TABLE IF NOT EXISTS $tableHomeworks (
+    id INTEGER PRIMARY KEY,
+    year_id INTEGER NOT NULL,
+    homework_id INTEGER NOT NULL,
+    entry_id INTEGER NOT NULL,
+    description TEXT NOT NULL,
+    due_date TEXT,
+    assigned_at TEXT,
+    created_at TEXT,
+    subject_name TEXT,
+    subject_id INTEGER,
+    teacher_id INTEGER,
+    teacher_name TEXT,
+    group_id INTEGER,
+    is_required INTEGER NOT NULL DEFAULT 0,
+    mark_required INTEGER NOT NULL DEFAULT 0,
+    attachments_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL
+  )
+''');
   }
 
   Future<void> _createTeachersTable(Database db) async {

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'homework_attachment.dart';
+
 class Lesson {
   final int? id;
   final int? secondaryId;
@@ -8,6 +10,7 @@ class Lesson {
   final String subject;
   final int? subjectId;
   final List<String> homeworks;
+  final List<HomeworkAttachment> attachments;
   final String? teacher;
 
   /// Числовой id учителя из schedule_items. Нужен, чтобы понять,
@@ -26,6 +29,7 @@ class Lesson {
     required this.subject,
     this.subjectId,
     this.homeworks = const [],
+    this.attachments = const [],
     this.teacher,
     this.teacherId,
     this.room,
@@ -40,6 +44,7 @@ class Lesson {
     subject: json['subject'] as String? ?? '—',
     subjectId: json['subject_id'] as int?,
     homeworks: decodeHomeworks(json['homework']),
+    attachments: _decodeAttachments(json['attachments']),
     teacher: json['teacher'] as String?,
     teacherId: json['teacher_id'] as int?,
     room: json['room'] as String?,
@@ -52,6 +57,7 @@ class Lesson {
     'subject': subject,
     'subject_id': subjectId,
     'homework': jsonEncode(homeworks),
+    'attachments': attachments.map((a) => a.toJson()).toList(),
     'teacher': teacher,
     'teacher_id': teacherId,
     'room': room,
@@ -71,6 +77,15 @@ class Lesson {
       return [raw];
     }
     return const [];
+  }
+
+  static List<HomeworkAttachment> _decodeAttachments(Object? raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(HomeworkAttachment.fromJson)
+        .where((a) => a.url.isNotEmpty)
+        .toList();
   }
 
   String get homeworkDisplay =>
@@ -99,6 +114,15 @@ List<Lesson> mergeLessonPairs(List<Lesson> lessons) {
       final homeworks = <String>{...a.homeworks, ...b.homeworks}.toList();
       final startMin = a._minutes(a.endTime);
       final endMin = b._minutes(b.startTime);
+
+      // Вложения склеиваем с дедупом по url — иначе два одинаковых
+      // файла от разных половин пары будут висеть дважды.
+      final seen = <String>{};
+      final attachments = <HomeworkAttachment>[];
+      for (final att in [...a.attachments, ...b.attachments]) {
+        if (seen.add(att.url)) attachments.add(att);
+      }
+
       result.add(Lesson(
         id: a.id,
         secondaryId: b.id,
@@ -107,6 +131,7 @@ List<Lesson> mergeLessonPairs(List<Lesson> lessons) {
         subject: a.subject,
         subjectId: a.subjectId,
         homeworks: homeworks,
+        attachments: attachments,
         teacher: a.teacher,
         teacherId: a.teacherId,
         room: a.room,

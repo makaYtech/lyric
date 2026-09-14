@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/homework.dart';
+import '../common/attachment_button.dart';
 
 /// Нижняя шторка по тапу на карточку ДЗ. Высоту контролирует
 /// DraggableScrollableSheet снаружи — сюда приходит его scrollController,
@@ -82,6 +83,33 @@ class HomeworkDetailsSheet extends StatelessWidget {
               homework.description.isEmpty ? 'не задано' : homework.description,
               style: theme.textTheme.bodyMedium?.copyWith(height: 1.4),
             ),
+
+            if (homework.attachments.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Text(
+                'Файлы',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: dim,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final a in homework.attachments)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: AttachmentButton(
+                        attachments: [a],
+                        label: a.name,
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ],
         ),
       ),

@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
+import '../core/settings/avatar_storage.dart';
 import '../core/theme/theme_controller.dart';
-import '../services/auth_service.dart';
 import '../widgets/auth/reauth_sheet.dart';
 import 'grades_view.dart';
 import 'home_controller.dart';
@@ -11,15 +12,15 @@ import 'profile_view.dart';
 import 'reauth_screen.dart';
 import 'schedule_view.dart';
 import 'settings_screen.dart';
-import '../core/settings/avatar_storage.dart';
+import '../services/attachment_service.dart';
 
 class HomeScreen extends StatefulWidget {
-  final EposTokens tokens;
+  final EposSession session;
   final ThemeController themeController;
 
   const HomeScreen({
     super.key,
-    required this.tokens,
+    required this.session,
     required this.themeController,
   });
 
@@ -38,11 +39,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _controller = HomeController(
-      tokens: widget.tokens,
+      session: widget.session,
       onError: _showErrorSnack,
     );
     _session.addListener(_onSessionChanged);
     _controller.init();
+    AttachmentService.instance.setSession(widget.session);
   }
 
   @override
@@ -83,11 +85,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _runReauth() async {
-    final tokens = await Navigator.of(context).push<EposTokens>(
+    final session = await Navigator.of(context).push<EposSession>(
       MaterialPageRoute(builder: (_) => const ReauthScreen()),
     );
-    if (tokens == null || !mounted) return;
-    _controller.updateTokens(tokens);
+    if (session == null || !mounted) return;
+    _controller.updateSession(session);
+    AttachmentService.instance.setSession(session);
     await _controller.refreshCurrentTab();
   }
 
@@ -150,8 +153,6 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Text(title, key: ValueKey(_controller.tabIndex)),
             ),
             actions: [
-              // Меню выбора учебного года нужно на вкладках, которые
-              // зависят от года: Оценки и ДЗ.
               if ((_controller.tabIndex == 1 || _controller.tabIndex == 3) &&
                   (_controller.years?.isNotEmpty ?? false))
                 _YearMenu(controller: _controller),
@@ -170,7 +171,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 profile: _controller.profile,
                 teachers: _controller.teachers,
                 studentTeacherIds: _controller.studentTeacherIds,
-                studentAvatarKey: AvatarStorage.studentKey(_controller.tokens.profileId),
+                studentAvatarKey:
+                AvatarStorage.studentKey(_controller.tokens.profileId),
                 isLoading: _controller.profileLoading,
                 error: _controller.profileErrorForView,
                 onRefresh: () => _guardedRefresh(_controller.refreshProfile),

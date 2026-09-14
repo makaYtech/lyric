@@ -6,6 +6,7 @@ import '../../models/day_schedule.dart';
 import '../../models/lesson.dart';
 import '../util/date_time.dart';
 import 'app_database.dart';
+import '../../models/homework_attachment.dart';
 
 /// Всё, что связано с расписанием и ДЗ, живёт здесь одной строкой на урок.
 /// Никакой истории — расписание переносится/меняется, старое значение
@@ -54,6 +55,9 @@ class ScheduleDao {
               'room': lesson.room,
               'homework': jsonEncode(lesson.homeworks),
               'updated_at': now,
+              'attachments_json': jsonEncode(
+                lesson.attachments.map((a) => a.toJson()).toList(),
+              ),
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
@@ -87,6 +91,7 @@ class ScheduleDao {
           teacherId: row['teacher_id'] as int?,
           room: row['room'] as String?,
           homeworks: Lesson.decodeHomeworks(row['homework'] as String?),
+          attachments: _decodeAttachments(row['attachments_json']),
         ),
       );
     }
@@ -112,5 +117,18 @@ class ScheduleDao {
     );
     if (rows.isEmpty) return null;
     return DateTime.tryParse(rows.first['updated_at'] as String);
+  }
+
+  static List<HomeworkAttachment> _decodeAttachments(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const [];
+    try {
+      return (jsonDecode(raw) as List)
+          .whereType<Map<String, dynamic>>()
+          .map(HomeworkAttachment.fromJson)
+          .where((a) => a.url.isNotEmpty)
+          .toList();
+    } catch (_) {
+      return const [];
+    }
   }
 }

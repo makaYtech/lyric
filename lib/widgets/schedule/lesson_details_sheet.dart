@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/lesson.dart';
+import '../common/attachment_button.dart';
 
 /// Содержимое модалки, которая выезжает снизу по тапу на урок.
 /// Высоту контролирует DraggableScrollableSheet снаружи — сюда
@@ -169,6 +170,34 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
                         color: i == _page
                             ? theme.colorScheme.primary
                             : theme.colorScheme.outlineVariant,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+
+            // Секция с вложениями появляется, если у урока есть файлы.
+            if (lesson.attachments.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              Text(
+                'Файлы',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final a in lesson.attachments)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: AttachmentButton(
+                        attachments: [a],
+                        label: a.name,
                       ),
                     ),
                 ],

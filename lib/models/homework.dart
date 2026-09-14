@@ -1,4 +1,5 @@
 import '../core/util/date_time.dart';
+import 'homework_attachment.dart';
 
 /// Одна запись ДЗ из /core/api/student_homeworks.
 ///
@@ -6,6 +7,8 @@ import '../core/util/date_time.dart';
 ///   { id, created_at,
 ///     homework_entry: {
 ///       id, description,
+///       attachments: [ { id, file_file_name, file_content_type,
+///                        file_file_size, path } ],
 ///       homework: {
 ///         id, teacher_id, subject_id, group_id,
 ///         date_assigned_on,     // «когда задал» (дата урока)
@@ -52,6 +55,10 @@ class Homework {
   final bool isRequired;
   final bool markRequired;
 
+  /// Вложения из homework_entry.attachments[]. Пусто — если учитель
+  /// ничего не приложил.
+  final List<HomeworkAttachment> attachments;
+
   const Homework({
     required this.id,
     required this.homeworkId,
@@ -67,6 +74,7 @@ class Homework {
     this.groupId,
     this.isRequired = false,
     this.markRequired = false,
+    this.attachments = const [],
   });
 
   /// Дата, к которой группируем на экране ДЗ.
@@ -99,7 +107,22 @@ class Homework {
       groupId: hw['group_id'] as int?,
       isRequired: hw['is_required'] as bool? ?? false,
       markRequired: hw['mark_required'] as bool? ?? false,
+      attachments: _readAttachments(entry),
     );
+  }
+
+  /// Вложения всегда лежат в homework_entry.attachments[] — верхнеуровневый
+  /// attachments у student_homeworks всегда пустой.
+  static List<HomeworkAttachment> _readAttachments(
+      Map<String, dynamic> entry,
+      ) {
+    final raw = entry['attachments'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(HomeworkAttachment.fromJson)
+        .where((a) => a.url.isNotEmpty)
+        .toList();
   }
 
   /// Название предмета. Основной путь — `homework.subject.name`,
@@ -141,6 +164,7 @@ class Homework {
     'group_id': groupId,
     'is_required': isRequired,
     'mark_required': markRequired,
+    'attachments': attachments.map((a) => a.toJson()).toList(),
   };
 
   factory Homework.fromCache(Map<String, dynamic> json) => Homework(
@@ -158,7 +182,17 @@ class Homework {
     groupId: json['group_id'] as int?,
     isRequired: json['is_required'] as bool? ?? false,
     markRequired: json['mark_required'] as bool? ?? false,
+    attachments: _decodeAttachments(json['attachments']),
   );
+
+  static List<HomeworkAttachment> _decodeAttachments(Object? raw) {
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map<String, dynamic>>()
+        .map(HomeworkAttachment.fromJson)
+        .where((a) => a.url.isNotEmpty)
+        .toList();
+  }
 
   static DateTime? _parse(Object? raw) =>
       raw is String ? DateTime.tryParse(raw) : null;
