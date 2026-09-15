@@ -12,9 +12,13 @@ class SessionRefreshService {
 
   Future<EposSession?>? _inFlight;
 
-  Future<EposSession?> ensureFresh(EposSession current) {
-    if (!current.needsRefresh) return Future.value(current);
-    return _refreshInternal(current);
+  Future<EposSession> ensureFresh(EposSession current) async {
+    if (!current.needsRefresh) return current;
+    final refreshed = await _refreshInternal(current);
+    // Не удалось обновить (нет сети и т.п.) — не роняем сессию целиком:
+    // auth_token отдельный и часто ещё жив, а офлайн-режим и так подтянет
+    // данные из локального кэша по year_id.
+    return refreshed ?? current;
   }
 
   Future<EposSession?> forceRefresh(EposSession current) =>

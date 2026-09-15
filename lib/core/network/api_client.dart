@@ -4,13 +4,18 @@ import '../../services/auth_service.dart';
 import '../../services/epos_response_guard.dart';
 import '../../services/retry.dart';
 import '../../services/session_expired_exception.dart';
+import '../auth/auth_coordinator.dart';
+import '../auth/session_notifier.dart';
 import 'epos_http_client.dart';
 
 /// Единая точка ВСЕХ запросов к ЭПОСу.
-/// Сервисы (GradesService, ScheduleService, ...) больше не создают
-/// http.Client и не собирают заголовки сами — только формируют Uri
-/// и зовут get()/getList().
+///
+/// Реакция на 401/«сессия истекла»: просим AuthCoordinator обновиться
+/// и повторяем запрос. Если он ответил networkError — это НЕ повод
+/// требовать вход заново, просто всплывает обычная ошибка обновления.
 class ApiClient {
+  static const _requestTimeout = Duration(seconds: 25);
+
   Future<Map<String, dynamic>> get(
       Uri url,
       EposTokens tokens, {
@@ -19,6 +24,14 @@ class ApiClient {
     final decoded = await _request(url, tokens, attempts: attempts);
     return decoded is Map<String, dynamic> ? decoded : const {};
   }
+
+  /// Ответ может быть и List, и Map — разбирается вызывающей стороной.
+  Future<dynamic> getRaw(
+      Uri url,
+      EposTokens tokens, {
+        int attempts = 3,
+      }) =>
+      _request(url, tokens, attempts: attempts);
 
   Future<List<dynamic>> getList(
       Uri url,
@@ -30,9 +43,6 @@ class ApiClient {
       final decoded = await _request(url, tokens, attempts: attempts);
       return decoded is List<dynamic> ? decoded : const [];
     } on SessionExpiredException {
-      // Истёкшую сессию не глушим НИКОГДА — иначе SessionNotifier
-      // не узнает, что пора показать модалку re-auth. silent относится
-      // только к «обычным» сетевым ошибкам (нет связи, 500 и т.п.).
       rethrow;
     } catch (_) {
       if (silent) return const [];
@@ -44,8 +54,29 @@ class ApiClient {
       Uri url,
       EposTokens tokens, {
         required int attempts,
-      }) {
-    return withRetry(() => _once(url, tokens), attempts: attempts);
+      }) async {
+    try {
+      return await withRetry(() => _once(url, tokens), attempts: attempts);
+    } on SessionExpiredException {
+      final outcome = await AuthCoordinator.instance.renew();
+      switch (outcome) {
+        case RenewOutcome.success:
+          final fresh = AuthCoordinator.instance.tokens ?? tokens;
+          try {
+            return await withRetry(() => _once(url, fresh), attempts: 1);
+          } on SessionExpiredException {
+            // Даже со свежим токеном сервер снова говорит «сессия
+            // истекла» — это уже не сеть, реально нужен живой вход.
+            SessionNotifier.instance.markExpired();
+            rethrow;
+          }
+        case RenewOutcome.authDead:
+          SessionNotifier.instance.markExpired();
+          rethrow;
+        case RenewOutcome.networkError:
+          throw Exception('Нет соединения — не удалось обновить сессию');
+      }
+    }
   }
 
   Future<dynamic> _once(Uri url, EposTokens tokens) async {
@@ -58,7 +89,7 @@ class ApiClient {
           'Profile-Id': tokens.profileId,
           'Accept': 'application/json',
         },
-      );
+      ).timeout(_requestTimeout);
       ensureSessionValid(response);
       if (response.statusCode != 200) {
         final body = utf8.decode(response.bodyBytes, allowMalformed: true);

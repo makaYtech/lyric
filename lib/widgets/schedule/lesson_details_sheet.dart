@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/lesson.dart';
 import '../common/attachment_button.dart';
+import '../common/my_work_section.dart';
 
 /// Содержимое модалки, которая выезжает снизу по тапу на урок.
 /// Высоту контролирует DraggableScrollableSheet снаружи — сюда
@@ -29,6 +30,13 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  int _currentStudentHomeworkId() {
+    final ids = widget.lesson.studentHomeworkIds;
+    if (ids.isEmpty) return 0;
+    final i = _page < ids.length ? _page : 0;
+    return ids[i];
   }
 
   @override
@@ -173,6 +181,18 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
                       ),
                     ),
                 ],
+              ),
+            ],
+
+            // Своя работа — по текущему ДЗ (индекс PageView совпадает
+            // с индексом в studentHomeworkIds, списки строятся вместе).
+            if (_currentStudentHomeworkId() != 0) ...[
+              const SizedBox(height: 16),
+              const Divider(height: 1),
+              const SizedBox(height: 12),
+              MyWorkSection(
+                key: ValueKey(_currentStudentHomeworkId()),
+                studentHomeworkId: _currentStudentHomeworkId(),
               ),
             ],
 

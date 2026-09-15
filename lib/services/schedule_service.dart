@@ -73,6 +73,7 @@ class ScheduleService {
           subject: item.subjectName,
           subjectId: item.subjectId,
           homeworks: _homeworkTexts(item.homeworkIds, homeworks),
+          studentHomeworkIds: _studentHomeworkIds(item.homeworkIds, homeworks),
           attachments: _homeworkAttachments(item.homeworkIds, homeworks),
           teacher: item.teacherId == null ? null : teachers[item.teacherId],
           teacherId: item.teacherId,
@@ -93,17 +94,34 @@ class ScheduleService {
   /// Тексты ДЗ по всем id урока, в порядке homeworks_to_give.
   /// "не задано" (в любом регистре/написании) и пустые строки не попадают
   /// в список — они и так рисуются в UI как "не задано" при пустом списке.
-  List<String> _homeworkTexts(
+  bool _isMeaningful(StudentHomework? hw) {
+    final text = hw?.description.trim();
+    if (text == null || text.isEmpty) return false;
+    final normalized = text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    return normalized != 'не задано';
+  }
+
+  /// Тексты ДЗ по всем id урока, в порядке homeworks_to_give.
+  List<String> _homeworkTexts(List<int> ids, Map<int, StudentHomework> map) {
+    final result = <String>[];
+    for (final id in ids) {
+      final hw = map[id];
+      if (!_isMeaningful(hw)) continue;
+      result.add(hw!.description.trim());
+    }
+    return result;
+  }
+
+  /// id записей student_homework — строго параллельно _homeworkTexts.
+  List<int> _studentHomeworkIds(
       List<int> ids,
       Map<int, StudentHomework> map,
       ) {
-    final result = <String>[];
+    final result = <int>[];
     for (final id in ids) {
-      final text = map[id]?.description.trim();
-      if (text == null || text.isEmpty) continue;
-      final normalized = text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-      if (normalized == 'не задано') continue;
-      result.add(text);
+      final hw = map[id];
+      if (!_isMeaningful(hw)) continue;
+      result.add(hw!.id);
     }
     return result;
   }

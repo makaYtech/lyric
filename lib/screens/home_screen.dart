@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/auth/auth_coordinator.dart';
 import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
 import '../core/settings/avatar_storage.dart';
@@ -38,6 +39,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+
+    // КРИТИЧНО: SessionNotifier — глобальный синглтон, его флаг переживает
+    // переход LoginScreen → HomeScreen. Если не сбросить, _guardedRefresh
+    // молча блокирует все обновления, а markExpired() не будит слушателей
+    // (там ранний return при уже взведённом флаге) — экран висит с вечным
+    // спиннером и не реагирует на pull-to-refresh.
+    _session.reset();
+    AuthCoordinator.instance.setSession(widget.session);
+
     _controller = HomeController(
       session: widget.session,
       onError: _showErrorSnack,
@@ -57,6 +67,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Реакция на истёкшую сессию ─────────────────────────────────────────
 
+  /// Сюда доходит только то, что не смог починить AuthCoordinator внутри
+  /// ApiClient — то есть офлайн-ключ реально мёртв и нужен живой человек.
   void _onSessionChanged() {
     if (!mounted) return;
     if (_session.needsAuth && !_reauthModalOpen) {
@@ -88,10 +100,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final session = await Navigator.of(context).push<EposSession>(
       MaterialPageRoute(builder: (_) => const ReauthScreen()),
     );
-    if (session == null || !mounted) return;
-    _controller.updateSession(session);
+    if (!mounted) return;
+    if (session == null) {
+      _showErrorSnack('Не удалось войти заново. Работаем с сохранёнными данными.');
+      return;
+    }
+    await _controller.updateSession(session);
     AttachmentService.instance.setSession(session);
-    await _controller.refreshCurrentTab();
+    await _controller.refreshAll();
   }
 
   // ── Общее ──────────────────────────────────────────────────────────────
@@ -134,10 +150,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _guardedRefresh(Future<void> Function() fn) async {
-    if (_session.needsAuth) return;
-    await fn();
-  }
+  /// Раньше тут стоял ранний выход при needsAuth, из-за чего экран с
+  /// протухшим флагом намертво переставал обновляться. Теперь обновление
+  /// всегда разрешено: ApiClient сам попробует тихо продлить сессию.
+  Future<void> _guardedRefresh(Future<void> Function() fn) => fn();
 
   @override
   Widget build(BuildContext context) {
@@ -146,74 +162,80 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (context, _) {
         final title = _controller.currentTitle;
 
-        return Scaffold(
-          appBar: AppBar(
-            title: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: Text(title, key: ValueKey(_controller.tabIndex)),
+        return Stack(
+          children: [
+            Scaffold(
+              appBar: AppBar(
+                title: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 200),
+                  child: Text(title, key: ValueKey(_controller.tabIndex)),
+                ),
+                actions: [
+                  if ((_controller.tabIndex == 1 || _controller.tabIndex == 3) &&
+                      (_controller.years?.isNotEmpty ?? false))
+                    _YearMenu(controller: _controller),
+                  IconButton(
+                    icon: const Icon(Icons.settings_outlined),
+                    tooltip: 'Настройки',
+                    onPressed: _openSettings,
+                  ),
+                ],
+              ),
+              body: PageView(
+                controller: _pageController,
+                onPageChanged: _controller.setTabIndex,
+                children: [
+                  ProfileView(
+                    profile: _controller.profile,
+                    teachers: _controller.teachers,
+                    studentTeacherIds: _controller.studentTeacherIds,
+                    studentAvatarKey:
+                    AvatarStorage.studentKey(_controller.tokens.profileId),
+                    isLoading: _controller.profileLoading,
+                    error: _controller.profileErrorForView,
+                    onRefresh: () => _guardedRefresh(_controller.refreshProfile),
+                  ),
+                  GradesView(
+                    grades: _controller.grades,
+                    isLoading: _controller.gradesLoading,
+                    error: _controller.gradesErrorForView,
+                    onRefresh: () => _guardedRefresh(_controller.refreshGrades),
+                  ),
+                  ScheduleView(
+                    schedule: _controller.schedule,
+                    marks: _controller.marks,
+                    grades: _controller.grades,
+                    isLoading: _controller.scheduleLoading,
+                    error: _controller.scheduleErrorForView,
+                    weekStart: _controller.weekStart,
+                    onWeekChanged: _controller.changeWeek,
+                    onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
+                  ),
+                  HomeworkView(
+                    homeworks: _controller.homeworks,
+                    isLoading: _controller.homeworksLoading,
+                    error: _controller.homeworksErrorForView,
+                    isActive: _controller.tabIndex == 3,
+                    onRefresh: () =>
+                        _guardedRefresh(_controller.refreshHomeworks),
+                  ),
+                ],
+              ),
+              bottomNavigationBar: _BottomBar(
+                controller: _controller,
+                needsAuth: _session.needsAuth,
+                onTabSelected: _onTabSelected,
+                onRefreshTap: () {
+                  if (_session.needsAuth) {
+                    _showReauthSheet();
+                  } else {
+                    _controller.refreshAll();
+                  }
+                },
+              ),
             ),
-            actions: [
-              if ((_controller.tabIndex == 1 || _controller.tabIndex == 3) &&
-                  (_controller.years?.isNotEmpty ?? false))
-                _YearMenu(controller: _controller),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined),
-                tooltip: 'Настройки',
-                onPressed: _openSettings,
-              ),
-            ],
-          ),
-          body: PageView(
-            controller: _pageController,
-            onPageChanged: _controller.setTabIndex,
-            children: [
-              ProfileView(
-                profile: _controller.profile,
-                teachers: _controller.teachers,
-                studentTeacherIds: _controller.studentTeacherIds,
-                studentAvatarKey:
-                AvatarStorage.studentKey(_controller.tokens.profileId),
-                isLoading: _controller.profileLoading,
-                error: _controller.profileErrorForView,
-                onRefresh: () => _guardedRefresh(_controller.refreshProfile),
-              ),
-              GradesView(
-                grades: _controller.grades,
-                isLoading: _controller.gradesLoading,
-                error: _controller.gradesErrorForView,
-                onRefresh: () => _guardedRefresh(_controller.refreshGrades),
-              ),
-              ScheduleView(
-                schedule: _controller.schedule,
-                marks: _controller.marks,
-                grades: _controller.grades,
-                isLoading: _controller.scheduleLoading,
-                error: _controller.scheduleErrorForView,
-                weekStart: _controller.weekStart,
-                onWeekChanged: _controller.changeWeek,
-                onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
-              ),
-              HomeworkView(
-                homeworks: _controller.homeworks,
-                isLoading: _controller.homeworksLoading,
-                error: _controller.homeworksErrorForView,
-                isActive: _controller.tabIndex == 3,
-                onRefresh: () => _guardedRefresh(_controller.refreshHomeworks),
-              ),
-            ],
-          ),
-          bottomNavigationBar: _BottomBar(
-            controller: _controller,
-            needsAuth: _session.needsAuth,
-            onTabSelected: _onTabSelected,
-            onRefreshTap: () {
-              if (_session.needsAuth) {
-                _showReauthSheet();
-              } else {
-                _controller.refreshAll();
-              }
-            },
-          ),
+            const AuthWebViewHost(),
+          ],
         );
       },
     );

@@ -9,16 +9,15 @@ import 'package:http/io_client.dart';
 /// Dart использует свой собственный список доверенных корневых
 /// сертификатов, отдельный от системного (Android WebView эту цепочку
 /// видит нормально, а обычный http.get() — нет, падает на TLS-хендшейке).
-/// Поэтому для ЛЮБОГО запроса к домену ЭПОСа нужно использовать именно
-/// этот клиент, а не голый package:http.
 ///
-/// Не забывай вызывать client.close() после использования одного запроса
-/// (см. пример в GradesService) — клиент не предназначен для переиспользования
-/// между множеством параллельных запросов.
+/// Таймауты обязательны: без них зависший коннект висит до таймаута ОС
+/// (минуты), и экран показывает вечный спиннер вместо ошибки.
 Future<http.Client> createEposHttpClient() async {
   final pemData = await rootBundle.load('assets/certs/epos_chain.pem');
   final context = SecurityContext();
   context.setTrustedCertificatesBytes(pemData.buffer.asUint8List());
-  final httpClient = HttpClient(context: context);
+  final httpClient = HttpClient(context: context)
+    ..connectionTimeout = const Duration(seconds: 15)
+    ..idleTimeout = const Duration(seconds: 10);
   return IOClient(httpClient);
 }

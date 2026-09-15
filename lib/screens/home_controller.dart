@@ -25,6 +25,7 @@ import '../repositories/student_groups_repository.dart';
 import '../repositories/teachers_repository.dart';
 import '../services/auth_service.dart';
 import '../services/session_expired_exception.dart';
+import '../core/auth/auth_coordinator.dart';
 
 class HomeController extends ChangeNotifier {
   HomeController({
@@ -54,8 +55,11 @@ class HomeController extends ChangeNotifier {
   }
 
   EposSession _session;
-  EposSession get session => _session;
-  EposTokens get tokens => _session.tokens;
+  // Актуальная сессия живёт в AuthCoordinator: он её обновляет молча,
+  // прямо посреди запросов. Читаем оттуда, иначе после тихого re-auth
+  // репозитории уйдут со старым, уже мёртвым authToken.
+  EposSession get session => AuthCoordinator.instance.session ?? _session;
+  EposTokens get tokens => session.tokens;
 
   final void Function(String message) _onError;
 
@@ -175,7 +179,15 @@ class HomeController extends ChangeNotifier {
     await HomeworkPrefs.load();
     await TeacherPrefs.load();
     await BackendPrefs.load();
-    await _loadCachedAll();
+    // Кэш — вещь опциональная. Если база не открылась или схема битая,
+    // это не повод не идти в сеть: раньше исключение отсюда обрывало
+    // init(), refreshAll() не вызывался, и все флаги загрузки навсегда
+    // оставались true — экран висел в вечной загрузке без ошибок.
+    try {
+      await _loadCachedAll();
+    } catch (e) {
+      debugPrint('Кэш не загрузился: $e');
+    }
     await refreshAll();
   }
 
@@ -198,6 +210,7 @@ class HomeController extends ChangeNotifier {
 
   Future<void> updateSession(EposSession session) async {
     _session = session;
+    AuthCoordinator.instance.setSession(session);
     await SessionRefreshService.instance.save(session);
     SessionNotifier.instance.clear();
     _notify();
@@ -296,22 +309,8 @@ class HomeController extends ChangeNotifier {
     try {
       await runBody();
     } on SessionExpiredException {
-      final fresh =
-      await SessionRefreshService.instance.forceRefresh(_session);
-      if (fresh == null) {
-        SessionNotifier.instance.markExpired();
-        return;
-      }
-      _session = fresh;
-      try {
-        await runBody();
-      } on SessionExpiredException {
-        SessionNotifier.instance.markExpired();
-      } catch (e) {
-        if (_disposed) return;
-        setError('Не удалось обновить: $e');
-        if (!silent) _onError(errorToast);
-      }
+      // ApiClient уже попробовал обновиться сам и не смог — markExpired
+      // там же и выставлен. Своей ошибки не рисуем: покажется шторка входа.
     } catch (e) {
       if (_disposed) return;
       setError('Не удалось обновить: $e');
@@ -324,28 +323,18 @@ class HomeController extends ChangeNotifier {
     }
   }
 
-  Future<void> refreshAll() => Future.wait([
-    refreshProfile(),
-    _refreshYears(),
-    refreshGrades(),
-    refreshSchedule(),
-    refreshHomeworks(),
-    _refreshTeachers(),
-  ]);
-
-  Future<void> refreshCurrentTab() {
-    switch (_tabIndex) {
-      case 0:
-        return refreshProfile();
-      case 1:
-        return refreshGrades();
-      case 2:
-        return refreshSchedule();
-      case 3:
-        return refreshHomeworks();
-      default:
-        return Future.value();
-    }
+  /// Годы — первыми и обязательно до остального: на чистой установке
+  /// _selectedYearId равен фолбэку (14), и все запросы с ним уходят
+  /// «в никуда», возвращая пустоту.
+  Future<void> refreshAll() async {
+    await _refreshYears();
+    await Future.wait([
+      refreshProfile(),
+      refreshGrades(),
+      refreshSchedule(),
+      refreshHomeworks(),
+      _refreshTeachers(),
+    ]);
   }
 
   Future<void> refreshProfile({bool silent = false}) => _runRefresh(
@@ -353,7 +342,7 @@ class HomeController extends ChangeNotifier {
     setError: (e) => _profileError = e,
     body: () async {
       final profile =
-      await _profileRepository.refresh(_session.tokens);
+      await _profileRepository.refresh(tokens);
       final updated = await _profileRepository.lastUpdated();
       if (_disposed) return;
       _profile = profile;
@@ -368,7 +357,7 @@ class HomeController extends ChangeNotifier {
     _notify();
     try {
       final list = await _teachersRepository.refresh(
-        _session.tokens,
+        tokens,
         _selectedYearId,
       );
       final updated =
@@ -392,7 +381,7 @@ class HomeController extends ChangeNotifier {
 
   Future<void> _refreshYears() async {
     try {
-      final years = await _yearsRepository.refresh(_session.tokens);
+      final years = await _yearsRepository.refresh(tokens);
       if (_disposed) return;
 
       var selected = _selectedYearId;
@@ -416,7 +405,7 @@ class HomeController extends ChangeNotifier {
     setError: (e) => _gradesError = e,
     body: () async {
       final grades = await _gradesRepository.refresh(
-        _session.tokens,
+        tokens,
         _selectedYearId,
       );
       final updated =
@@ -432,7 +421,7 @@ class HomeController extends ChangeNotifier {
   Future<void> _ensureGroups() async {
     if (_groupIds.isNotEmpty) return;
     try {
-      final groups = await _groupsRepository.refresh(_session.tokens);
+      final groups = await _groupsRepository.refresh(tokens);
       if (_disposed) return;
       _groupIds = groups.map((g) => g.id).toList();
     } on SessionExpiredException {
@@ -456,13 +445,13 @@ class HomeController extends ChangeNotifier {
 
       final results = await Future.wait<Object>([
         _scheduleRepository.refresh(
-          _session.tokens,
+          tokens,
           monday,
           _selectedYearId,
           _groupIds,
         ),
         _marksRepository.refresh(
-          _session.tokens,
+          tokens,
           _selectedYearId,
           from: monday,
           to: sunday,
@@ -506,7 +495,7 @@ class HomeController extends ChangeNotifier {
     body: () async {
       final range = _academicYearRange(DateTime.now());
       final homeworks = await _homeworkRepository.refresh(
-        _session.tokens,
+        tokens,
         _selectedYearId,
         from: range.$1,
         to: range.$2,

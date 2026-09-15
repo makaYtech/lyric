@@ -45,6 +45,9 @@ class HomeworkDao {
             'attachments_json': jsonEncode(
               h.attachments.map((a) => a.toJson()).toList(),
             ),
+            'my_attachments_json': jsonEncode(
+              h.myAttachments.map((a) => a.toJson()).toList(),
+            ),
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
@@ -94,6 +97,7 @@ class HomeworkDao {
     markRequired: (r['mark_required'] as int? ?? 0) == 1,
     teacherName: r['teacher_name'] as String?,
     attachments: _decodeAttachments(r['attachments_json']),
+    myAttachments: _decodeAttachments(r['my_attachments_json']),
   );
 
   static DateTime? _date(Object? raw) =>

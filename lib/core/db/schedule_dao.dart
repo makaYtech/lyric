@@ -58,6 +58,9 @@ class ScheduleDao {
               'attachments_json': jsonEncode(
                 lesson.attachments.map((a) => a.toJson()).toList(),
               ),
+              'student_homework_ids_json': jsonEncode(
+                lesson.studentHomeworkIds
+              ),
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
@@ -92,6 +95,7 @@ class ScheduleDao {
           room: row['room'] as String?,
           homeworks: Lesson.decodeHomeworks(row['homework'] as String?),
           attachments: _decodeAttachments(row['attachments_json']),
+          studentHomeworkIds: _decodeIds(row['student_homework_ids_json']),
         ),
       );
     }
@@ -117,6 +121,18 @@ class ScheduleDao {
     );
     if (rows.isEmpty) return null;
     return DateTime.tryParse(rows.first['updated_at'] as String);
+  }
+
+  static List<int> _decodeIds(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const [];
+    try {
+      return (jsonDecode(raw) as List)
+          .whereType<num>()
+          .map((e) => e.toInt())
+          .toList();
+    } catch (_) {
+      return const [];
+    }
   }
 
   static List<HomeworkAttachment> _decodeAttachments(Object? raw) {

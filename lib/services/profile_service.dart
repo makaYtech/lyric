@@ -1,57 +1,41 @@
-import 'dart:convert';
-import '../core/network/epos_http_client.dart';
+import '../core/network/api_client.dart';
 import '../models/student_profile.dart';
-import 'auth_service.dart';
 import 'api_endpoints.dart';
-import 'epos_response_guard.dart';
+import 'auth_service.dart';
 
+/// Профиль ученика + список школ из /acl/api/users.
+/// Ходит через ApiClient — значит получает автоматический re-auth на 401.
 class ProfileService {
+  final ApiClient _api;
+  ProfileService({ApiClient? api}) : _api = api ?? ApiClient();
+
   Future<StudentProfile> fetchProfile(EposTokens tokens) async {
-    final client = await createEposHttpClient();
-    try {
-      final headers = {
-        'Auth-Token': tokens.authToken,
-        'Profile-Id': tokens.profileId,
-        'Accept': 'application/json',
-      };
-
-      // 1. Профиль ученика
-      final profileResp = await client.get(
-        ApiEndpoints.studentProfile(tokens.profileId),
-        headers: headers,
-      );
-      if (profileResp.statusCode != 200) {
-        throw Exception(
-          'student_profiles вернул ${profileResp.statusCode}: ${profileResp.body}',
-        );
-      }
-      final decoded =
-      jsonDecode(utf8.decode(profileResp.bodyBytes)) as Map<String, dynamic>;
-
-      // 2. Узнаём user_id и запрашиваем школы
-      final userId = decoded['user_id'];
-      if (userId != null) {
-        final userResp = await client.get(
-          ApiEndpoints.users('$userId', tokens.profileId),
-          headers: headers,
-        );
-        ensureSessionValid(userResp);
-        if (userResp.statusCode == 200) {
-          final userJson =
-          jsonDecode(utf8.decode(userResp.bodyBytes)) as dynamic;
-
-          // Достаём список profiles со school_shortname
-          final profiles = _extractProfiles(userJson);
-
-          // Подкладываем в decoded, чтобы fromJson их увидел
-          decoded['profiles'] = profiles;
-        }
-      }
-
-      return StudentProfile.fromJson(decoded);
-    } finally {
-      client.close();
+    final decoded = await _api.get(
+      ApiEndpoints.studentProfile(tokens.profileId),
+      tokens,
+      attempts: 3,
+    );
+    if (decoded.isEmpty) {
+      throw Exception('student_profiles вернул пустой ответ');
     }
+
+    final map = Map<String, dynamic>.from(decoded);
+
+    final userId = map['user_id'];
+    if (userId != null) {
+      try {
+        final userJson = await _api.getRaw(
+          ApiEndpoints.users('$userId', tokens.profileId),
+          tokens,
+          attempts: 1,
+        );
+        map['profiles'] = _extractProfiles(userJson);
+      } catch (_) {
+        // Школы — не критично, профиль покажем и без них.
+      }
+    }
+
+    return StudentProfile.fromJson(map);
   }
 
   /// Достаём profiles[] из ответа acl/api/users.
@@ -64,8 +48,6 @@ class ProfileService {
     }
 
     if (root is List) {
-      // ids мог быть передан несколько раз — берём первый элемент,
-      // либо собираем все profiles из всех пользователей.
       final all = <dynamic>[];
       for (final user in root) {
         if (user is Map<String, dynamic>) {

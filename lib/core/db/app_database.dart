@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -18,7 +20,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 10;
+  static const _version = 11;
 
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
@@ -50,6 +52,21 @@ class AppDatabase {
   Future<Database> _open() async {
     final dir = await getApplicationDocumentsDirectory();
     final path = p.join(dir.path, _fileName);
+    try {
+      return await _openAt(path);
+    } catch (_) {
+      // База битая или недосоздана (например, схема упала на полпути).
+      // Кэш — не ценные данные, сносим файл и создаём заново: это лучше,
+      // чем навсегда неработающее приложение.
+      try {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      } catch (_) {}
+      return _openAt(path);
+    }
+  }
+
+  Future<Database> _openAt(String path) {
     return openDatabase(
       path,
       version: _version,
@@ -103,6 +120,21 @@ class AppDatabase {
             );
           }
         }
+        if (oldVersion < 11) {
+          if (!await _columnExists(
+              db, tableLessons, 'student_homework_ids_json')) {
+            await db.execute(
+              "ALTER TABLE $tableLessons ADD COLUMN "
+                  "student_homework_ids_json TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+          if (!await _columnExists(db, tableHomeworks, 'my_attachments_json')) {
+            await db.execute(
+              "ALTER TABLE $tableHomeworks ADD COLUMN "
+                  "my_attachments_json TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+        }
       },
     );
   }
@@ -113,6 +145,10 @@ class AppDatabase {
   }
 
   Future<void> _createAll(Database db) async {
+    // ВНИМАНИЕ: никаких висячих запятых перед закрывающей скобкой —
+    // SQLite отвечает «near ")": syntax error», onCreate падает целиком,
+    // и приложение остаётся вообще без базы (проявляется только на
+    // чистой установке, потому что onCreate больше нигде не вызывается).
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableLessons (
         id INTEGER PRIMARY KEY,
@@ -125,8 +161,9 @@ class AppDatabase {
         teacher_id INTEGER,
         room TEXT,
         homework TEXT,
-        updated_at TEXT NOT NULL,
         attachments_json TEXT NOT NULL DEFAULT '[]',
+        student_homework_ids_json TEXT NOT NULL DEFAULT '[]',
+        updated_at TEXT NOT NULL
       )
     ''');
     await db.execute(
@@ -189,6 +226,9 @@ class AppDatabase {
     );
   }
 
+  /// Одна-единственная схема. Раньше тут стояли два CREATE подряд, и
+  /// из-за IF NOT EXISTS выигрывал первый — без attachments_json, отчего
+  /// вставка ДЗ падала на «no column named attachments_json».
   Future<void> _createHomeworksTable(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableHomeworks (
@@ -207,34 +247,14 @@ class AppDatabase {
         group_id INTEGER,
         is_required INTEGER NOT NULL DEFAULT 0,
         mark_required INTEGER NOT NULL DEFAULT 0,
+        attachments_json TEXT NOT NULL DEFAULT '[]',
+        my_attachments_json TEXT NOT NULL DEFAULT '[]',
         updated_at TEXT NOT NULL
       )
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_homeworks_year ON $tableHomeworks(year_id, due_date)',
     );
-
-    await db.execute('''
-  CREATE TABLE IF NOT EXISTS $tableHomeworks (
-    id INTEGER PRIMARY KEY,
-    year_id INTEGER NOT NULL,
-    homework_id INTEGER NOT NULL,
-    entry_id INTEGER NOT NULL,
-    description TEXT NOT NULL,
-    due_date TEXT,
-    assigned_at TEXT,
-    created_at TEXT,
-    subject_name TEXT,
-    subject_id INTEGER,
-    teacher_id INTEGER,
-    teacher_name TEXT,
-    group_id INTEGER,
-    is_required INTEGER NOT NULL DEFAULT 0,
-    mark_required INTEGER NOT NULL DEFAULT 0,
-    attachments_json TEXT NOT NULL DEFAULT '[]',
-    updated_at TEXT NOT NULL
-  )
-''');
   }
 
   Future<void> _createTeachersTable(Database db) async {

@@ -58,6 +58,10 @@ class Homework {
   /// Вложения из homework_entry.attachments[]. Пусто — если учитель
   /// ничего не приложил.
   final List<HomeworkAttachment> attachments;
+  /// Файлы, прикреплённые САМИМ учеником (корневой attachments[]
+  /// у student_homework). Не путать с [attachments] — там файлы учителя
+  /// из homework_entry.attachments[].
+  final List<HomeworkAttachment> myAttachments;
 
   const Homework({
     required this.id,
@@ -75,6 +79,7 @@ class Homework {
     this.isRequired = false,
     this.markRequired = false,
     this.attachments = const [],
+    this.myAttachments = const [],
   });
 
   /// Дата, к которой группируем на экране ДЗ.
@@ -108,6 +113,7 @@ class Homework {
       isRequired: hw['is_required'] as bool? ?? false,
       markRequired: hw['mark_required'] as bool? ?? false,
       attachments: _readAttachments(entry),
+      myAttachments: _decodeAttachments(json['attachments']),
     );
   }
 
@@ -165,6 +171,7 @@ class Homework {
     'is_required': isRequired,
     'mark_required': markRequired,
     'attachments': attachments.map((a) => a.toJson()).toList(),
+    'my_attachments': myAttachments.map((a) => a.toJson()).toList(),
   };
 
   factory Homework.fromCache(Map<String, dynamic> json) => Homework(
@@ -183,6 +190,7 @@ class Homework {
     isRequired: json['is_required'] as bool? ?? false,
     markRequired: json['mark_required'] as bool? ?? false,
     attachments: _decodeAttachments(json['attachments']),
+    myAttachments: _decodeAttachments(json['my_attachments']),
   );
 
   static List<HomeworkAttachment> _decodeAttachments(Object? raw) {

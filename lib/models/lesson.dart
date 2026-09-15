@@ -10,6 +10,10 @@ class Lesson {
   final String subject;
   final int? subjectId;
   final List<String> homeworks;
+  /// id записей student_homework, параллельно [homeworks] по индексу.
+  /// Нужны, чтобы из модалки урока можно было прикрепить свой файл
+  /// к конкретному ДЗ. 0 — id неизвестен, прикрепление недоступно.
+  final List<int> studentHomeworkIds;
   final List<HomeworkAttachment> attachments;
   final String? teacher;
 
@@ -35,6 +39,7 @@ class Lesson {
     this.room,
     this.isPaired = false,
     this.breakMinutes,
+    this.studentHomeworkIds = const [],
   });
 
   factory Lesson.fromJson(Map<String, dynamic> json) => Lesson(
@@ -48,6 +53,7 @@ class Lesson {
     teacher: json['teacher'] as String?,
     teacherId: json['teacher_id'] as int?,
     room: json['room'] as String?,
+    studentHomeworkIds: _decodeIds(json['student_homework_ids']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -61,6 +67,7 @@ class Lesson {
     'teacher': teacher,
     'teacher_id': teacherId,
     'room': room,
+    'student_homework_ids': studentHomeworkIds,
   };
 
   /// Раньше в БД/кэше лежала одна строка ДЗ, теперь — JSON-список.
@@ -99,6 +106,16 @@ class Lesson {
     if (h == null || m == null) return null;
     return h * 60 + m;
   }
+  static List<int> _decodeIds(Object? raw) {
+    if (raw is List) return raw.whereType<num>().map((e) => e.toInt()).toList();
+    if (raw is String && raw.isNotEmpty) {
+      try {
+        final d = jsonDecode(raw);
+        if (d is List) return d.whereType<num>().map((e) => e.toInt()).toList();
+      } catch (_) {}
+    }
+    return const [];
+  }
 }
 
 /// Объединяет подряд идущие одинаковые уроки (тот же предмет, учитель,
@@ -111,7 +128,7 @@ List<Lesson> mergeLessonPairs(List<Lesson> lessons) {
     final a = lessons[i];
     if (i + 1 < lessons.length && _sameSlot(a, lessons[i + 1])) {
       final b = lessons[i + 1];
-      final homeworks = <String>{...a.homeworks, ...b.homeworks}.toList();
+      final homeworks = <String>[...a.homeworks, ...b.homeworks];
       final startMin = a._minutes(a.endTime);
       final endMin = b._minutes(b.startTime);
 
@@ -138,6 +155,7 @@ List<Lesson> mergeLessonPairs(List<Lesson> lessons) {
         isPaired: true,
         breakMinutes:
         (startMin != null && endMin != null) ? endMin - startMin : null,
+        studentHomeworkIds: [...a.studentHomeworkIds, ...b.studentHomeworkIds],
       ));
       i += 2;
     } else {

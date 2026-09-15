@@ -5,15 +5,6 @@ import 'dart:math';
 import 'package:crypto/crypto.dart';
 
 /// Чистый OAuth-клиент ЭПОСа. Никакого WebView, никакого UI.
-///
-/// Отвечает за:
-///   - генерацию PKCE (verifier/challenge/state);
-///   - построение URL для WebView;
-///   - обмен authorization_code на access+refresh;
-///   - refresh через grant_type=refresh_token.
-///
-/// Получение auth_token/profile_id делается вторым заходом в WebView
-/// (см. login_screen) — там же, где ловим code.
 class EposOAuthClient {
   static const _authBase = 'https://auth-epos.permkrai.ru';
   static const _realm = '/kk/auth/realms/epos';
@@ -79,6 +70,8 @@ class EposOAuthClient {
     return TokenSet.fromJson(body);
   }
 
+  /// Проверено вручную curl'ом: grant_type=refresh_token с офлайн-ключом
+  /// отдаёт свежий access_token/refresh_token чистым REST, без браузера.
   Future<TokenSet> refresh(String refreshToken) async {
     final body = await _postToken(
       body: {
@@ -95,8 +88,9 @@ class EposOAuthClient {
     required Map<String, String> body,
     required Map<String, String> cookies,
   }) async {
-    final client = HttpClient();
-    client.userAgent = _ua;
+    final client = HttpClient()
+      ..userAgent = _ua
+      ..connectionTimeout = const Duration(seconds: 15);
     try {
       final req = await client.postUrl(
         Uri.parse('$_authBase$_realm/protocol/openid-connect/token'),
@@ -117,12 +111,38 @@ class EposOAuthClient {
 
       final resp = await req.close();
       final raw = await resp.transform(utf8.decoder).join();
-      if (resp.statusCode != 200) {
-        throw EposOAuthException(
-          'token endpoint вернул ${resp.statusCode}: $raw',
-        );
+
+      if (resp.statusCode == 200) {
+        return jsonDecode(raw) as Map<String, dynamic>;
       }
-      return jsonDecode(raw) as Map<String, dynamic>;
+
+      // Единственный сигнал, что офлайн-ключ РЕАЛЬНО мёртв (отозван/
+      // просрочен) — явный invalid_grant от Keycloak. Всё остальное
+      // (5xx, WAF, неожиданное тело) — считаем сетевой проблемой,
+      // а не поводом требовать интерактивный вход.
+      String? errorCode;
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) {
+          errorCode = decoded['error'] as String?;
+        }
+      } catch (_) {}
+
+      if ((resp.statusCode == 400 || resp.statusCode == 401) &&
+          errorCode == 'invalid_grant') {
+        throw EposOAuthAuthDeadException('offline-ключ отклонён: $raw');
+      }
+      throw EposOAuthNetworkException(
+        'token endpoint вернул ${resp.statusCode}: $raw',
+      );
+    } on EposOAuthAuthDeadException {
+      rethrow;
+    } on EposOAuthNetworkException {
+      rethrow;
+    } catch (e) {
+      // SocketException, TimeoutException, HandshakeException, обрыв
+      // соединения и т.п. — сеть недоступна прямо сейчас, ключ ни при чём.
+      throw EposOAuthNetworkException('$e');
     } finally {
       client.close();
     }
@@ -150,9 +170,22 @@ class TokenSet {
   }
 }
 
-class EposOAuthException implements Exception {
+/// Общая обёртка — на случай, если где-то ловят по типу EposOAuthException.
+abstract class EposOAuthException implements Exception {
   final String message;
   const EposOAuthException(this.message);
   @override
   String toString() => 'EposOAuth: $message';
+}
+
+/// Офлайн-ключ реально мёртв (Keycloak вернул invalid_grant) — нужен
+/// живой интерактивный вход.
+class EposOAuthAuthDeadException extends EposOAuthException {
+  const EposOAuthAuthDeadException(super.message);
+}
+
+/// Сеть недоступна / таймаут / сервер лежит — ключ тут ни при чём,
+/// это временная проблема, не повод требовать повторный вход.
+class EposOAuthNetworkException extends EposOAuthException {
+  const EposOAuthNetworkException(super.message);
 }
