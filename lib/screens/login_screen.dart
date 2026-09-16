@@ -11,9 +11,13 @@ import 'device_login_screen.dart';
 import 'home_screen.dart';
 import 'myschool_login_screen.dart';
 
-/// Диспатчер входа по бэкенду и флагу AuthConfig.useDeviceTokenFlow.
+/// Диспатчер входа: по бэкенду → по AuthConfig.useDeviceTokenFlow.
 /// Сам login здесь только выбирает экран — вся реальная работа либо в
 /// DeviceLoginScreen (новый flow), либо в _EposLoginView (legacy).
+///
+/// ValueListenableBuilder нужен потому, что флаг теперь меняется в
+/// рантайме из DeveloperScreen. Если пользователь переключит flow и
+/// окажется на этом экране — LoginScreen сам перерисуется на нужный.
 class LoginScreen extends StatelessWidget {
   final ThemeController themeController;
 
@@ -27,19 +31,25 @@ class LoginScreen extends StatelessWidget {
         if (backend == Backends.mySchool) {
           return MySchoolLoginScreen(themeController: themeController);
         }
-        if (AuthConfig.useDeviceTokenFlow) {
-          return DeviceLoginScreen(themeController: themeController);
-        }
-        return _EposLoginView(themeController: themeController);
+        return ValueListenableBuilder<bool>(
+          valueListenable: AuthConfig.useDeviceTokenFlow,
+          builder: (context, useDevice, _) {
+            if (useDevice) {
+              return DeviceLoginScreen(themeController: themeController);
+            }
+            return _EposLoginView(themeController: themeController);
+          },
+        );
       },
     );
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// LEGACY PKCE flow. Не используется при AuthConfig.useDeviceTokenFlow == true,
+// LEGACY PKCE flow. Не используется при useDeviceTokenFlow == true,
 // но оставлен живым: если новый flow вдруг окажется нерабочим в каком-то
-// сценарии, достаточно вернуть флаг — и код снова заработает.
+// сценарии, достаточно переключить флаг в DeveloperScreen — и код снова
+// заработает без отката.
 // ─────────────────────────────────────────────────────────────────────────
 
 class _EposLoginView extends StatefulWidget {

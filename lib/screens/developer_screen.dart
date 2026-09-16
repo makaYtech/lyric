@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../core/auth/session_notifier.dart';
+import '../core/auth/auth_config.dart';
 import '../core/debug/debug_tools.dart';
 import '../core/theme/theme_controller.dart';
 import 'login_screen.dart';
@@ -12,9 +12,6 @@ import 'login_screen.dart';
 /// сменить текущее состояние. Единственное, что мы делаем для
 /// безопасности — подтверждения на опасных действиях и snackbar с
 /// результатом.
-///
-/// Всё, что ниже карточки «Полный сброс», действительно сносит данные:
-/// после этого приложение покажет LoginScreen. Так и задумано.
 ///
 /// ВАЖНО: токены и ключи тут НИКОГДА не показываются целиком или
 /// по частям. Только факт наличия и длина. Префикс — это тоже часть
@@ -120,6 +117,37 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   }
 
   // ── Обработчики ────────────────────────────────────────────────────────
+
+  /// Переключение flow. Сбрасываем текущую сессию, потому что:
+  ///   - иначе пользователь не увидит эффекта (сессия продолжит жить
+  ///     тем flow, которым была получена);
+  ///   - при смене flow логично начать с чистого листа — вдруг на
+  ///     другом flow refresh-логика несовместима с тем, что лежит в БД.
+  ///
+  /// Флаг сохраняется в prefs и применяется на следующем логине.
+  /// Кэш и device_key не трогаем — они не привязаны к flow.
+  Future<void> _toggleAuthFlow(bool useDevice) async {
+    final current = AuthConfig.useDeviceTokenFlow.value;
+    if (current == useDevice) return;
+
+    final ok = await _confirm(
+      title: 'Сменить flow авторизации?',
+      body: useDevice
+          ? 'Включить device-token flow (новый). Текущая сессия будет '
+          'сброшена — потребуется войти заново. Кэш и device_key '
+          'останутся на месте.'
+          : 'Включить legacy OAuth flow (PKCE + refresh_token + Phase C). '
+          'Текущая сессия будет сброшена — потребуется войти заново. '
+          'Используй, если новый flow не работает на стороне сервера.',
+      confirmLabel: 'Сменить и выйти',
+    );
+    if (!ok) return;
+
+    await AuthConfig.setUseDeviceTokenFlow(useDevice);
+    await _tools.clearWholeEposSession();
+    if (!mounted) return;
+    _goToLogin();
+  }
 
   Future<void> _clearDeviceToken() async {
     final ok = await _confirm(
@@ -369,6 +397,44 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
             children: [
               const _WarningBanner(),
               const SizedBox(height: 16),
+
+              _Section(
+                title: 'Авторизация',
+                children: [
+                  ValueListenableBuilder<bool>(
+                    valueListenable: AuthConfig.useDeviceTokenFlow,
+                    builder: (context, useDevice, _) => SwitchListTile(
+                      secondary: Icon(
+                        useDevice
+                            ? Icons.shield_moon_outlined
+                            : Icons.history_edu_outlined,
+                        color: useDevice
+                            ? null
+                            : Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                      title: const Text('device-token flow'),
+                      subtitle: Text(
+                        useDevice
+                            ? 'Новый: WebView → ESIA → diaryperm:// → '
+                            '/authenticate с заголовком token'
+                            : 'Legacy: PKCE + refresh_token + Phase C '
+                            'через скрытый WebView',
+                      ),
+                      value: useDevice,
+                      onChanged: _busy ? null : _toggleAuthFlow,
+                    ),
+                  ),
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.info_outline, size: 18),
+                    title: const Text(
+                      'Смена flow сбрасывает текущую сессию и возвращает '
+                          'на LoginScreen. Применяется при следующем входе.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ),
 
               _Section(
                 title: 'Сессия ЭПОС',

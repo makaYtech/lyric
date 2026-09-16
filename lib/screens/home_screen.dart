@@ -99,9 +99,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _runReauth() async {
+    // Какой экран открыть — решает флаг AuthConfig. Значение читаем
+    // один раз при открытии диалога; переключение флага в DeveloperScreen
+    // в момент открытой модалки не отслеживаем — это не имеет смысла.
+    final useDevice = AuthConfig.useDeviceTokenFlow.value;
+
     final session = await Navigator.of(context).push<EposSession>(
       MaterialPageRoute(
-        builder: (_) => AuthConfig.useDeviceTokenFlow
+        builder: (_) => useDevice
             ? const DeviceReauthScreen()
             : const ReauthScreen(),
       ),

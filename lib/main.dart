@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'core/auth/auth_config.dart';
 import 'core/auth/epos_session.dart';
 import 'core/auth/myschool_token_storage.dart';
 import 'core/auth/session_refresh_service.dart';
@@ -22,6 +23,7 @@ Future<void> main() async {
   }
   final themeController = await ThemeController.load();
   await BackendPrefs.load();
+  await AuthConfig.load();
 
   if (BackendPrefs.current.value == Backends.mySchool) {
     final msTokens = await MySchoolTokenStorage().load();
