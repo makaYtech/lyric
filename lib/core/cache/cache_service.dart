@@ -80,6 +80,15 @@ class CacheService {
     return prefs.getString(key);
   }
 
+  /// Снести одну запись вместе с её timestamp'ом.
+  /// Используется девелоперским сбросом — например, «забудь профиль,
+  /// пусть загрузится заново».
+  Future<void> remove(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(key);
+    await prefs.remove('$key$_timestampSuffix');
+  }
+
   Future<void> _touchTimestamp(SharedPreferences prefs, String key) async {
     await prefs.setString(
       '$key$_timestampSuffix',

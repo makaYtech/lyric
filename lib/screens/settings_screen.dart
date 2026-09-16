@@ -14,6 +14,7 @@ import '../core/theme/theme_controller.dart';
 import '../core/util/names.dart';
 import '../models/teacher.dart';
 import '../widgets/common/person_avatar.dart';
+import 'developer_screen.dart';
 import 'login_screen.dart';
 import '../core/auth/myschool_token_storage.dart';
 
@@ -271,6 +272,48 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  /// Предупреждение + переход на DeveloperScreen. Предупреждение
+  /// показывается ровно один раз при входе — внутри экрана уже нет
+  /// дополнительных блокировок.
+  Future<void> _openDeveloper(BuildContext context) async {
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(
+          Icons.warning_amber_rounded,
+          color: Theme.of(ctx).colorScheme.error,
+        ),
+        title: const Text('Для разработчика'),
+        content: const Text(
+          'Какие-либо действия на этой вкладке могут привести к поломке '
+              'работоспособности приложения. Настоятельно не рекомендуется '
+              'трогать без нужды.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+              foregroundColor: Theme.of(ctx).colorScheme.onError,
+            ),
+            child: const Text('Понятно, войти'),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true || !context.mounted) return;
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DeveloperScreen(themeController: themeController),
+      ),
+    );
+  }
+
   static final _clearAllTeachersSentinel = Object();
 
   String _pluralTeachers(int n) {
@@ -476,6 +519,26 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
                 onTap: () => _logout(context),
+              ),
+              const Divider(height: 32),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Для разработчика',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.bug_report_outlined,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                title: const Text('Для разработчика'),
+                subtitle: const Text(
+                  'Настройки, которые ненужно менять',
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => _openDeveloper(context),
               ),
             ],
           );

@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../core/auth/auth_config.dart';
 import '../core/auth/epos_oauth_client.dart';
 import '../core/auth/session_refresh_service.dart';
 import '../core/backend/backends.dart';
 import '../core/backend/backends_prefs.dart';
 import '../core/theme/theme_controller.dart';
+import 'device_login_screen.dart';
 import 'home_screen.dart';
 import 'myschool_login_screen.dart';
 
+/// Диспатчер входа по бэкенду и флагу AuthConfig.useDeviceTokenFlow.
+/// Сам login здесь только выбирает экран — вся реальная работа либо в
+/// DeviceLoginScreen (новый flow), либо в _EposLoginView (legacy).
 class LoginScreen extends StatelessWidget {
   final ThemeController themeController;
 
@@ -22,11 +27,20 @@ class LoginScreen extends StatelessWidget {
         if (backend == Backends.mySchool) {
           return MySchoolLoginScreen(themeController: themeController);
         }
+        if (AuthConfig.useDeviceTokenFlow) {
+          return DeviceLoginScreen(themeController: themeController);
+        }
         return _EposLoginView(themeController: themeController);
       },
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// LEGACY PKCE flow. Не используется при AuthConfig.useDeviceTokenFlow == true,
+// но оставлен живым: если новый flow вдруг окажется нерабочим в каком-то
+// сценарии, достаточно вернуть флаг — и код снова заработает.
+// ─────────────────────────────────────────────────────────────────────────
 
 class _EposLoginView extends StatefulWidget {
   final ThemeController themeController;

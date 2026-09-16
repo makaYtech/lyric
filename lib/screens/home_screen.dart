@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../core/auth/auth_config.dart';
 import '../core/auth/auth_coordinator.dart';
 import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
 import '../core/settings/avatar_storage.dart';
 import '../core/theme/theme_controller.dart';
 import '../widgets/auth/reauth_sheet.dart';
+import 'device_reauth_screen.dart';
 import 'grades_view.dart';
 import 'home_controller.dart';
 import 'homework_view.dart';
@@ -68,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Реакция на истёкшую сессию ─────────────────────────────────────────
 
   /// Сюда доходит только то, что не смог починить AuthCoordinator внутри
-  /// ApiClient — то есть офлайн-ключ реально мёртв и нужен живой человек.
+  /// ApiClient — то есть сессия реально мёртва и нужен живой человек.
   void _onSessionChanged() {
     if (!mounted) return;
     if (_session.needsAuth && !_reauthModalOpen) {
@@ -98,7 +100,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _runReauth() async {
     final session = await Navigator.of(context).push<EposSession>(
-      MaterialPageRoute(builder: (_) => const ReauthScreen()),
+      MaterialPageRoute(
+        builder: (_) => AuthConfig.useDeviceTokenFlow
+            ? const DeviceReauthScreen()
+            : const ReauthScreen(),
+      ),
     );
     if (!mounted) return;
     if (session == null) {
@@ -193,7 +199,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     AvatarStorage.studentKey(_controller.tokens.profileId),
                     isLoading: _controller.profileLoading,
                     error: _controller.profileErrorForView,
-                    onRefresh: () => _guardedRefresh(_controller.refreshProfile),
+                    onRefresh: () =>
+                        _guardedRefresh(_controller.refreshProfile),
                   ),
                   GradesView(
                     grades: _controller.grades,
@@ -209,7 +216,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     error: _controller.scheduleErrorForView,
                     weekStart: _controller.weekStart,
                     onWeekChanged: _controller.changeWeek,
-                    onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
+                    onRefresh: () =>
+                        _guardedRefresh(_controller.refreshSchedule),
                   ),
                   HomeworkView(
                     homeworks: _controller.homeworks,

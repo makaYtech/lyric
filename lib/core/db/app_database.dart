@@ -282,6 +282,14 @@ class AppDatabase {
     );
   }
 
+  /// Точечная чистка одной таблицы. Не сбрасывает схему, просто DELETE.
+  /// Используется девелоперским сбросом: «с Porcelain только расписание,
+  /// кэш оценок оставь».
+  Future<void> clearTable(String table) async {
+    final db = await database;
+    await db.delete(table);
+  }
+
   Future<void> clearAll() async {
     final db = await database;
     await db.delete(tableLessons);

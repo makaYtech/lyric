@@ -3,6 +3,11 @@ import 'epos_session.dart';
 import 'epos_session_storage.dart';
 
 /// Оркестратор жизненного цикла сессии.
+///
+/// Умеет только одно: "обновить access_token по refresh_token". С появлением
+/// device-token-флоу тут ничего не меняется — тот flow обслуживается
+/// AuthCoordinator'ом напрямую (ему WebView не нужен, только один HTTP).
+/// Методы этого класса остаются для legacy-сессий.
 class SessionRefreshService {
   SessionRefreshService._();
   static final instance = SessionRefreshService._();
@@ -33,8 +38,13 @@ class SessionRefreshService {
   }
 
   Future<EposSession?> _doRefresh(EposSession current) async {
+    // Device-token-сессия — сюда не ходит. Её refresh делает
+    // AuthCoordinator::_renewViaDeviceToken.
+    final rt = current.refreshToken;
+    if (rt == null) return null;
+
     try {
-      final fresh = await _client.refresh(current.refreshToken);
+      final fresh = await _client.refresh(rt);
       final updated = current.copyWith(
         accessToken: fresh.accessToken,
         refreshToken: fresh.refreshToken,
@@ -48,7 +58,7 @@ class SessionRefreshService {
   }
 
   /// Собирает EposSession из уже полученных кусков.
-  /// Вызывается из login_screen после того, как WebView прошёл
+  /// Вызывается из старого login_screen после того, как WebView прошёл
   /// обе фазы (PKCE + edu-epos) и у нас на руках code и cookies.
   Future<EposSession> buildAndSave({
     required String code,
