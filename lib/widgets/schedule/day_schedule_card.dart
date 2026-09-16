@@ -6,7 +6,7 @@ import '../../models/lesson.dart';
 import '../../models/lesson_grades.dart';
 import 'lesson_card.dart';
 
-class DayScheduleCard extends StatelessWidget {
+class DayScheduleCard extends StatefulWidget {
   final DaySchedule day;
   final bool highlightToday;
   final LessonGradesLookup grades;
@@ -19,9 +19,28 @@ class DayScheduleCard extends StatelessWidget {
   });
 
   @override
+  State<DayScheduleCard> createState() => _DayScheduleCardState();
+}
+
+class _DayScheduleCardState extends State<DayScheduleCard> {
+  // Кэш объединённых пар. Пересчитываем только при смене day.lessons.
+  List<Lesson>? _mergedCache;
+  List<Lesson>? _mergedFor;
+
+  List<Lesson> _merged() {
+    if (identical(_mergedFor, widget.day.lessons) && _mergedCache != null) {
+      return _mergedCache!;
+    }
+    _mergedCache = mergeLessonPairs(widget.day.lessons);
+    _mergedFor = widget.day.lessons;
+    return _mergedCache!;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isToday = highlightToday && _isToday(day.date);
+    final day = widget.day;
+    final isToday = widget.highlightToday && _isToday(day.date);
 
     final todayTint = Color.alphaBlend(
       theme.colorScheme.primary.withOpacity(0.10),
@@ -81,8 +100,7 @@ class DayScheduleCard extends StatelessWidget {
             child: ValueListenableBuilder<bool>(
               valueListenable: SchedulePrefs.mergePairs,
               builder: (context, merge, _) {
-                final lessons =
-                merge ? mergeLessonPairs(day.lessons) : day.lessons;
+                final lessons = merge ? _merged() : day.lessons;
                 return lessons.isEmpty
                     ? Padding(
                   padding: const EdgeInsets.symmetric(vertical: 20),
@@ -101,7 +119,7 @@ class DayScheduleCard extends StatelessWidget {
                     for (final l in lessons)
                       LessonCard(
                         lesson: l,
-                        grades: grades.forLesson(l),
+                        grades: widget.grades.forLesson(l),
                       ),
                   ],
                 );

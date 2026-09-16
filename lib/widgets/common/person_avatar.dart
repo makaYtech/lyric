@@ -13,8 +13,11 @@ import '../../core/util/names.dart';
 /// через системный picker; долгий тап — сбросить обратно на инициалы.
 /// Файл никуда не копируется: в настройках хранится только путь.
 ///
-/// Подписан на [AvatarStorage.revision] — перерисовывается при любом
-/// изменении (в т.ч. если аватар сбросили из настроек).
+/// Подписан на per-key нотифаер из [AvatarStorage] — перерисовывается
+/// ровно тогда, когда меняется ЕГО ключ, а не при любой смене аватарок
+/// в дереве (как было с глобальным revision). Плюс быстрый синхронный
+/// путь через in-memory кэш: если ключ уже читали, первый кадр рисует
+/// картинку без мигания инициалами.
 class PersonAvatar extends StatefulWidget {
   final String fullName;
   final double radius;
@@ -42,39 +45,62 @@ class PersonAvatar extends StatefulWidget {
 class _PersonAvatarState extends State<PersonAvatar> {
   String? _localPath;
   bool _loading = false;
+  ValueNotifier<int>? _revision;
 
   @override
   void initState() {
     super.initState();
-    _loadPath();
-    AvatarStorage.revision.addListener(_onRevisionChanged);
+    _attach();
   }
 
   @override
   void didUpdateWidget(covariant PersonAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.avatarKey != widget.avatarKey) {
-      _loadPath();
+      _detach();
+      _attach();
     }
   }
 
   @override
   void dispose() {
-    AvatarStorage.revision.removeListener(_onRevisionChanged);
+    _detach();
     super.dispose();
   }
 
-  void _onRevisionChanged() => _loadPath();
-
-  Future<void> _loadPath() async {
+  void _attach() {
     final key = widget.avatarKey;
     if (key == null) {
-      if (mounted) setState(() => _localPath = null);
+      _localPath = null;
       return;
     }
+    // Синхронный быстрый путь: если ключ уже читали из prefs — сразу
+    // показываем, без await. Это критично, когда на экране 20 учителей:
+    // без этого каждый build мигал бы фоллбэком на инициалы.
+    if (AvatarStorage.isLoaded(key)) {
+      _localPath = AvatarStorage.cachedPath(key);
+    } else {
+      _loadFromPrefs(key);
+    }
+    _revision = AvatarStorage.revisionFor(key);
+    _revision!.addListener(_onRevision);
+  }
+
+  void _detach() {
+    _revision?.removeListener(_onRevision);
+    _revision = null;
+  }
+
+  void _onRevision() {
+    final key = widget.avatarKey;
+    if (key == null || !mounted) return;
+    setState(() => _localPath = AvatarStorage.cachedPath(key));
+  }
+
+  Future<void> _loadFromPrefs(String key) async {
     final path = await AvatarStorage.path(key);
-    if (!mounted) return;
-    setState(() => _localPath = (path == null || path.isEmpty) ? null : path);
+    if (!mounted || widget.avatarKey != key) return;
+    setState(() => _localPath = path);
   }
 
   Future<void> _pickImage() async {
@@ -83,16 +109,11 @@ class _PersonAvatarState extends State<PersonAvatar> {
     setState(() => _loading = true);
     try {
       final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: ImageSource.gallery,
-      );
+      final picked = await picker.pickImage(source: ImageSource.gallery);
       if (picked == null) return;
-
       await AvatarStorage.savePath(key, picked.path);
-      // revision listener сам перечитает путь, но setState ниже —
-      // чтобы не ждать асинхронного срабатывания.
-      if (!mounted) return;
-      setState(() => _localPath = picked.path);
+      // revision listener сам перечитает путь и сделает setState —
+      // здесь только снимаем индикатор загрузки.
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -107,8 +128,6 @@ class _PersonAvatarState extends State<PersonAvatar> {
     final key = widget.avatarKey;
     if (key == null) return;
     await AvatarStorage.clear(key);
-    if (!mounted) return;
-    setState(() => _localPath = null);
   }
 
   @override

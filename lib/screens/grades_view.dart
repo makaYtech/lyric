@@ -25,6 +25,29 @@ class GradesView extends StatefulWidget {
 class _GradesViewState extends State<GradesView> {
   String? _selectedPeriod;
 
+  // Кэш периодов. Раньше _collectPeriods прогонял все предметы × все
+  // периоды на каждый build; теперь только при смене списка grades.
+  List<String> _cachedPeriods = const [];
+  List<SubjectGrade>? _cachedPeriodsFor;
+
+  List<String> _periods() {
+    final grades = widget.grades;
+    if (identical(_cachedPeriodsFor, grades)) return _cachedPeriods;
+    if (grades == null) {
+      _cachedPeriods = const [];
+    } else {
+      final set = <String>{};
+      for (final s in grades) {
+        for (final p in s.periods) {
+          set.add(p.name);
+        }
+      }
+      _cachedPeriods = set.toList()..sort(_comparePeriods);
+    }
+    _cachedPeriodsFor = grades;
+    return _cachedPeriods;
+  }
+
   @override
   void didUpdateWidget(covariant GradesView oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -34,24 +57,12 @@ class _GradesViewState extends State<GradesView> {
   }
 
   void _validateSelection() {
-    final periods = _collectPeriods(widget.grades);
+    final periods = _periods();
     if (periods.isEmpty) {
       _selectedPeriod = null;
     } else if (_selectedPeriod == null || !periods.contains(_selectedPeriod)) {
       _selectedPeriod = periods.first;
     }
-  }
-
-  /// Собираем уникальные имена периодов по всем предметам и сортируем.
-  List<String> _collectPeriods(List<SubjectGrade>? grades) {
-    if (grades == null) return const [];
-    final set = <String>{};
-    for (final s in grades) {
-      for (final p in s.periods) {
-        set.add(p.name);
-      }
-    }
-    return set.toList()..sort(_comparePeriods);
   }
 
   /// "1 полугодие" < "2 полугодие" < "10 ..." — по числу, потом по строке.
@@ -77,9 +88,9 @@ class _GradesViewState extends State<GradesView> {
         hasData: widget.grades != null && widget.grades!.isNotEmpty,
         contentBuilder: (context) {
           final all = widget.grades!;
-          final periods = _collectPeriods(all);
-          final selected = _selectedPeriod ??
-              (periods.isNotEmpty ? periods.first : null);
+          final periods = _periods();
+          final selected =
+              _selectedPeriod ?? (periods.isNotEmpty ? periods.first : null);
 
           // Предметы, у которых есть оценки за выбранный период.
           final visible = selected == null

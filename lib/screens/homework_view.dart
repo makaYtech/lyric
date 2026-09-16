@@ -37,9 +37,13 @@ class _HomeworkViewState extends State<HomeworkView>
   List<DateTime> _dates = const [];
   int _selectedIndex = 0;
 
-  /// Держим состояние вкладки, пока приложение живо. Выбранный день
-  /// и позиция скролла сохраняются при переключении на другие вкладки
-  /// и обратно; при перезапуске приложения — сбрасываются.
+  // Кэш отфильтрованного списка под выбранную дату. Раньше фильтрация
+  // (проход по всем ДЗ года) шла на каждый build — теперь только при
+  // смене даты / списка / режима группировки.
+  List<Homework>? _itemsCache;
+  DateTime? _itemsCacheForDate;
+  List<Homework>? _itemsCacheForList;
+
   @override
   bool get wantKeepAlive => true;
 
@@ -60,9 +64,6 @@ class _HomeworkViewState extends State<HomeworkView>
       if (widget.isActive) _scheduleScrollToSelected();
     }
 
-    // Вкладку только что открыли — центрируем выбранный день.
-    // Откладываем на время анимации PageView (300ms) + запас, иначе
-    // скролл полосы конфликтует с анимацией страницы и лагает.
     if (!oldWidget.isActive && widget.isActive) {
       _scheduleScrollToSelected(delay: const Duration(milliseconds: 350));
     }
@@ -76,14 +77,20 @@ class _HomeworkViewState extends State<HomeworkView>
 
   void _onPrefChanged() {
     if (!mounted) return;
+    _invalidateItemsCache();
     _recomputeDates();
     setState(() {});
     _scheduleScrollToSelected();
   }
 
+  void _invalidateItemsCache() {
+    _itemsCache = null;
+    _itemsCacheForDate = null;
+    _itemsCacheForList = null;
+  }
+
   static bool _hasContent(Homework h) {
-    final d =
-    h.description.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final d = h.description.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
     return d.isNotEmpty && d != 'не задано';
   }
 
@@ -92,6 +99,8 @@ class _HomeworkViewState extends State<HomeworkView>
   }
 
   void _recomputeDates() {
+    _invalidateItemsCache();
+
     final homeworks = widget.homeworks;
     final oldSelected = (_selectedIndex >= 0 && _selectedIndex < _dates.length)
         ? _dates[_selectedIndex]
@@ -142,8 +151,6 @@ class _HomeworkViewState extends State<HomeworkView>
       idx = display.indexWhere((d) => d == oldSelected);
     }
     if (idx < 0) {
-      // Первое открытие: сегодня. Если сегодня не в диапазоне —
-      // первая дата ≥ сегодня, иначе — последняя.
       idx = display.indexWhere((d) => !d.isBefore(today));
       if (idx < 0) idx = display.length - 1;
     }
@@ -165,19 +172,18 @@ class _HomeworkViewState extends State<HomeworkView>
     if (_selectedIndex < 0 || _selectedIndex >= _dates.length) return;
     if (!_itemScrollController.isAttached) return;
 
-    // В полосе пункты идут парами: чип + разделитель. Значит индекс
-    // чипа = 2 * _selectedIndex (см. _DateStrip).
     final target = _selectedIndex * 2;
     _itemScrollController.scrollTo(
       index: target,
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeInOut,
-      alignment: 0.5, // 0.5 = центр вьюпорта
+      alignment: 0.5,
     );
   }
 
   void _select(int index) {
     if (index == _selectedIndex) return;
+    _invalidateItemsCache();
     setState(() => _selectedIndex = index);
     _scrollToSelected();
   }
@@ -185,11 +191,20 @@ class _HomeworkViewState extends State<HomeworkView>
   List<Homework> _forSelectedDate() {
     if (_dates.isEmpty) return const [];
     final d = _dates[_selectedIndex];
-    final list = (widget.homeworks ?? const <Homework>[])
+    final list = widget.homeworks;
+    if (_itemsCache != null &&
+        _itemsCacheForDate == d &&
+        identical(_itemsCacheForList, list)) {
+      return _itemsCache!;
+    }
+    final items = (list ?? const <Homework>[])
         .where((h) => _hasContent(h) && _sameDay(_dateFor(h), d))
         .toList();
-    list.sort((a, b) => (a.subjectName ?? '').compareTo(b.subjectName ?? ''));
-    return list;
+    items.sort((a, b) => (a.subjectName ?? '').compareTo(b.subjectName ?? ''));
+    _itemsCache = items;
+    _itemsCacheForDate = d;
+    _itemsCacheForList = list;
+    return items;
   }
 
   static bool _sameDay(DateTime? a, DateTime b) =>
@@ -197,7 +212,7 @@ class _HomeworkViewState extends State<HomeworkView>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // требуется AutomaticKeepAliveClientMixin
+    super.build(context);
 
     return RefreshIndicator(
       onRefresh: widget.onRefresh,
@@ -249,8 +264,6 @@ class _HomeworkViewState extends State<HomeworkView>
   }
 }
 
-/// Переключатель режима группировки. Лейбл «Ещё немного — и кранты» —
-/// переключает между «по дню, когда задали» и «по дню дедлайна».
 class _ModeSwitcher extends StatelessWidget {
   final bool groupByDue;
   final ValueChanged<bool> onChanged;
@@ -298,12 +311,6 @@ class _ModeSwitcher extends StatelessWidget {
   }
 }
 
-/// Полоса дат: каждая дата — чип, между чипами — разделители
-/// (пустое место / вертикальная черта недели / метка месяца).
-///
-/// Использует ленивый `ScrollablePositionedList`, чтобы строить только
-/// видимые чипы. Общее количество пунктов = 2 * dates.length - 1
-/// (чередование чип/разделитель). Чип с датой `i` — на пункте `2*i`.
 class _DateStrip extends StatelessWidget {
   final List<DateTime> dates;
   final int selectedIndex;
@@ -322,7 +329,6 @@ class _DateStrip extends StatelessWidget {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    // Общее число пунктов: N чипов + (N-1) разделителей.
     final itemCount = dates.length * 2 - 1;
 
     return SizedBox(
@@ -333,7 +339,6 @@ class _DateStrip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         itemCount: itemCount,
         itemBuilder: (context, i) {
-          // Чётные — чипы, нечётные — разделители.
           if (i.isEven) {
             final dateIndex = i ~/ 2;
             final d = dates[dateIndex];
@@ -345,7 +350,6 @@ class _DateStrip extends StatelessWidget {
             );
           }
 
-          // Разделитель между dateIndex = (i-1)/2 и (i+1)/2.
           final prev = dates[(i - 1) ~/ 2];
           final cur = dates[(i + 1) ~/ 2];
           if (cur.month != prev.month) {

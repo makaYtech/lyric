@@ -81,6 +81,27 @@ class HomeController extends ChangeNotifier {
 
   bool _disposed = false;
 
+  // ── Узкие каналы обновления вкладок ────────────────────────────────────
+  //
+  // Раньше HomeScreen оборачивал весь Scaffold в AnimatedBuilder(animation:
+  // this), и любой notifyListeners() пересобирал AppBar, PageView,
+  // BottomBar и все четыре вкладки. Самая дорогая часть — ScheduleView
+  // с пересборкой LessonGradesLookup.fromMarks (полный проход по marks +
+  // построение словарей). Она зря дёргалась даже при refreshHomeworks,
+  // который к расписанию отношения не имеет.
+  //
+  // Теперь каждая вкладка подписана на свой тик и перестраивается только
+  // когда меняется именно её состояние. notifyListeners() остался для
+  // AppBar и BottomBar — там нужны tabIndex/years/anyLoading/needsAuth,
+  // а они меняются часто и дёшевы в пересборке.
+  //
+  // Инкремент тика = "состояние этой вкладки обновилось, перерисуй".
+  // Значение счётчика не имеет смысла, важен сам факт изменения.
+  final profileTick = ValueNotifier<int>(0);
+  final gradesTick = ValueNotifier<int>(0);
+  final scheduleTick = ValueNotifier<int>(0);
+  final homeworksTick = ValueNotifier<int>(0);
+
   int _tabIndex = 0;
   int get tabIndex => _tabIndex;
 
@@ -194,6 +215,10 @@ class HomeController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    profileTick.dispose();
+    gradesTick.dispose();
+    scheduleTick.dispose();
+    homeworksTick.dispose();
     super.dispose();
   }
 
@@ -205,6 +230,15 @@ class HomeController extends ChangeNotifier {
   void setTabIndex(int i) {
     if (i == _tabIndex) return;
     _tabIndex = i;
+    // Вкладки слушают свои тики, но при смене таба нужно обновить
+    // те, чьё состояние зависит от isActive (HomeworkView) или от
+    // того, что мы на них только что переключились. Проще всего —
+    // дёрнуть все: пересборка ListenableBuilder'ов дешёвая, реальные
+    // StatefulWidget'ы пересоберутся только при смене пропсов.
+    profileTick.value++;
+    gradesTick.value++;
+    scheduleTick.value++;
+    homeworksTick.value++;
     _notify();
   }
 
@@ -281,6 +315,12 @@ class HomeController extends ChangeNotifier {
     _teachers = teachers;
     _teachersUpdated = teachersUpdated;
     _notify();
+    // Только теперь имеет смысл дёргать тики вкладок: данные из кэша
+    // уже разложены по полям, вкладки прочитают актуальные значения.
+    profileTick.value++;
+    gradesTick.value++;
+    scheduleTick.value++;
+    homeworksTick.value++;
   }
 
   int? _currentYearIdFrom(List<AcademicYear>? years) {
@@ -296,12 +336,14 @@ class HomeController extends ChangeNotifier {
   Future<void> _runRefresh({
     required void Function(bool) setLoading,
     required void Function(String?) setError,
+    required ValueNotifier<int> revision,
     required Future<void> Function() body,
     required String errorToast,
     required bool silent,
   }) async {
     setLoading(true);
     setError(null);
+    revision.value++;
     _notify();
 
     Future<void> runBody() => body();
@@ -318,6 +360,7 @@ class HomeController extends ChangeNotifier {
     } finally {
       if (!_disposed) {
         setLoading(false);
+        revision.value++;
         _notify();
       }
     }
@@ -340,6 +383,7 @@ class HomeController extends ChangeNotifier {
   Future<void> refreshProfile({bool silent = false}) => _runRefresh(
     setLoading: (v) => _profileLoading = v,
     setError: (e) => _profileError = e,
+    revision: profileTick,
     body: () async {
       final profile =
       await _profileRepository.refresh(tokens);
@@ -354,6 +398,7 @@ class HomeController extends ChangeNotifier {
 
   Future<void> _refreshTeachers() async {
     _teachersLoading = true;
+    profileTick.value++;
     _notify();
     try {
       final list = await _teachersRepository.refresh(
@@ -374,6 +419,7 @@ class HomeController extends ChangeNotifier {
     } finally {
       if (!_disposed) {
         _teachersLoading = false;
+        profileTick.value++;
         _notify();
       }
     }
@@ -403,6 +449,7 @@ class HomeController extends ChangeNotifier {
   Future<void> refreshGrades({bool silent = false}) => _runRefresh(
     setLoading: (v) => _gradesLoading = v,
     setError: (e) => _gradesError = e,
+    revision: gradesTick,
     body: () async {
       final grades = await _gradesRepository.refresh(
         tokens,
@@ -435,6 +482,7 @@ class HomeController extends ChangeNotifier {
   Future<void> refreshSchedule({bool silent = false}) => _runRefresh(
     setLoading: (v) => _scheduleLoading = v,
     setError: (e) => _scheduleError = e,
+    revision: scheduleTick,
     body: () async {
       await _ensureGroups();
       if (_groupIds.isEmpty) {
@@ -492,6 +540,7 @@ class HomeController extends ChangeNotifier {
   Future<void> refreshHomeworks({bool silent = false}) => _runRefresh(
     setLoading: (v) => _homeworksLoading = v,
     setError: (e) => _homeworksError = e,
+    revision: homeworksTick,
     body: () async {
       final range = _academicYearRange(DateTime.now());
       final homeworks = await _homeworkRepository.refresh(
@@ -522,6 +571,7 @@ class HomeController extends ChangeNotifier {
     _schedule = null;
     _marks = null;
     _scheduleUpdated = null;
+    scheduleTick.value++;
     _notify();
 
     final cached =
@@ -534,6 +584,7 @@ class HomeController extends ChangeNotifier {
     _schedule = cached;
     _scheduleUpdated = updated;
     _marks = cachedMarks.isEmpty ? null : cachedMarks;
+    scheduleTick.value++;
     _notify();
 
     await refreshSchedule(silent: true);
@@ -548,6 +599,9 @@ class HomeController extends ChangeNotifier {
     _homeworksUpdated = null;
     _teachers = null;
     _teachersUpdated = null;
+    gradesTick.value++;
+    homeworksTick.value++;
+    profileTick.value++;
     _notify();
 
     await _cache.saveInt(_selectedYearKey, yearId);
@@ -565,6 +619,9 @@ class HomeController extends ChangeNotifier {
     _homeworksUpdated = updatedHw;
     _teachers = cachedTeachers;
     _teachersUpdated = updatedTeachers;
+    gradesTick.value++;
+    homeworksTick.value++;
+    profileTick.value++;
     _notify();
 
     await refreshGrades(silent: true);

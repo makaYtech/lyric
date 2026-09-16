@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/subject_grade.dart';
 import '../common/grade_dot.dart';
 
-class SubjectGradeCard extends StatelessWidget {
+class SubjectGradeCard extends StatefulWidget {
   final SubjectGrade grade;
   final String? selectedPeriod;
 
@@ -14,17 +14,47 @@ class SubjectGradeCard extends StatelessWidget {
   });
 
   @override
+  State<SubjectGradeCard> createState() => _SubjectGradeCardState();
+}
+
+class _SubjectGradeCardState extends State<SubjectGradeCard> {
+  // Кэш плоского списка оценок. Пересчитываем только когда меняется
+  // сам SubjectGrade (identical) или выбранный период. ExpansionTile
+  // раскрывается/сворачивается — пропсы те же, кэш живёт.
+  List<_MiniGradeEntry>? _cachedEntries;
+  SubjectGrade? _cachedEntriesFor;
+  String? _cachedEntriesPeriod;
+
+  List<_MiniGradeEntry> _entries() {
+    final sameGrade = identical(_cachedEntriesFor, widget.grade);
+    final samePeriod = _cachedEntriesPeriod == widget.selectedPeriod;
+    if (sameGrade && samePeriod && _cachedEntries != null) {
+      return _cachedEntries!;
+    }
+    final period = widget.selectedPeriod == null
+        ? null
+        : widget.grade.periodByName(widget.selectedPeriod!);
+    final workTypes =
+        period?.workTypes ?? widget.grade.periods.expand((p) => p.workTypes).toList();
+    _cachedEntries = _collectEntries(workTypes);
+    _cachedEntriesFor = widget.grade;
+    _cachedEntriesPeriod = widget.selectedPeriod;
+    return _cachedEntries!;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final grade = widget.grade;
 
-    final period = selectedPeriod == null
+    final period = widget.selectedPeriod == null
         ? null
-        : grade.periodByName(selectedPeriod!);
+        : grade.periodByName(widget.selectedPeriod!);
 
     final workTypes = period?.workTypes ??
         grade.periods.expand((p) => p.workTypes).toList();
     final avg = period?.average ?? grade.average;
-    final entries = _collectEntries(workTypes);
+    final entries = _entries();
     final avgColor = _averageColor(avg);
 
     return Card(
@@ -81,9 +111,6 @@ class SubjectGradeCard extends StatelessWidget {
   }
 
   /// Собираем плоский список оценок с сохранением типа работы каждой.
-  /// Раньше использовали period.allGrades — там был просто List<int>,
-  /// и привязка к workType терялась. Теперь каждая оценка идёт вместе
-  /// со своим workType, датой и комментарием.
   static List<_MiniGradeEntry> _collectEntries(List<WorkTypeGrades> workTypes) {
     final out = <_MiniGradeEntry>[];
     for (final w in workTypes) {

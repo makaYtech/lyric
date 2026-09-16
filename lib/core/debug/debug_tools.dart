@@ -9,6 +9,7 @@ import '../auth/session_notifier.dart';
 import '../auth/session_refresh_service.dart';
 import '../cache/cache_service.dart';
 import '../db/app_database.dart';
+import '../settings/avatar_storage.dart';
 
 /// Снимок текущего состояния — чтобы UI показал одним куском и не
 /// гонял по пять фьючеров на rebuild.
@@ -156,14 +157,20 @@ class DebugTools {
       _cache.remove('student_groups');
 
   /// Сносим только записи с префиксом avatar: — не трогая настройки
-  /// приложения (theme_mode и прочее).
+  /// приложения (theme_mode и прочее). После — обязательно сбрасываем
+  /// in-memory кэш AvatarStorage, иначе в памяти останутся пути к файлам,
+  /// ссылок на которые в prefs уже нет, и аватарки будут показываться
+  /// «из ниоткуда» до перезапуска.
   Future<void> clearAvatarCache() async {
     final prefs = await SharedPreferences.getInstance();
-    for (final key in prefs.getKeys().toList()) {
-      if (key.startsWith('avatar:')) {
-        await prefs.remove(key);
-      }
+    final keys = prefs
+        .getKeys()
+        .where((k) => k.startsWith('avatar:'))
+        .toList();
+    for (final key in keys) {
+      await prefs.remove(key);
     }
+    AvatarStorage.invalidateAll();
   }
 
   /// Сбросить prefs расписания/учителей/ДЗ к дефолтным значениям.
@@ -180,7 +187,10 @@ class DebugTools {
 
   /// Полный снос SharedPreferences кроме темы. Эквивалент
   /// CacheService.clearAll(), вынесен сюда для симметрии с UI.
-  Future<void> clearAllSharedPrefs() => _cache.clearAll();
+  Future<void> clearAllSharedPrefs() async {
+    await _cache.clearAll();
+    AvatarStorage.invalidateAll();
+  }
 
   // ── SQLite ─────────────────────────────────────────────────────────────
 
@@ -227,6 +237,7 @@ class DebugTools {
     await SessionRefreshService.instance.clear();
     await MySchoolTokenStorage().clear();
     await _cache.clearAll();
+    AvatarStorage.invalidateAll();
     await AppDatabase.instance.clearAll();
     if (alsoDeviceKey) {
       await DeviceTokenAuthService.instance.resetDeviceKey();

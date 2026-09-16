@@ -113,7 +113,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (!mounted) return;
     if (session == null) {
-      _showErrorSnack('Не удалось войти заново. Работаем с сохранёнными данными.');
+      _showErrorSnack(
+          'Не удалось войти заново. Работаем с сохранёнными данными.');
       return;
     }
     await _controller.updateSession(session);
@@ -168,89 +169,146 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        final title = _controller.currentTitle;
+    // Скрытый WebView нужен ТОЛЬКО для legacy-сессий: legacy refresh идёт
+    // через Phase C в этом WebView. Для device-token-сессии он простаивает.
+    // Условие "или" покрывает случай, когда флаг уже true (device-token),
+    // но сессия ещё старая (у пользователя после обновления приложения):
+    // такое бывает, если он не перелогинивался — тогда refresh пойдёт
+    // по legacy-пути, и WebView должен быть на месте.
+    final needsHiddenWebView = Listenable.merge([
+      AuthConfig.useDeviceTokenFlow,
+      _controller,
+    ]);
 
-        return Stack(
-          children: [
-            Scaffold(
-              appBar: AppBar(
-                title: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 200),
-                  child: Text(title, key: ValueKey(_controller.tabIndex)),
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: _HomeAppBar(
+            controller: _controller,
+            onOpenSettings: _openSettings,
+          ),
+          body: PageView(
+            controller: _pageController,
+            onPageChanged: _controller.setTabIndex,
+            children: [
+              ListenableBuilder(
+                listenable: _controller.profileTick,
+                builder: (context, _) => ProfileView(
+                  profile: _controller.profile,
+                  teachers: _controller.teachers,
+                  studentTeacherIds: _controller.studentTeacherIds,
+                  studentAvatarKey:
+                  AvatarStorage.studentKey(_controller.tokens.profileId),
+                  isLoading: _controller.profileLoading,
+                  error: _controller.profileErrorForView,
+                  onRefresh: () => _guardedRefresh(_controller.refreshProfile),
                 ),
-                actions: [
-                  if ((_controller.tabIndex == 1 || _controller.tabIndex == 3) &&
-                      (_controller.years?.isNotEmpty ?? false))
-                    _YearMenu(controller: _controller),
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined),
-                    tooltip: 'Настройки',
-                    onPressed: _openSettings,
-                  ),
-                ],
               ),
-              body: PageView(
-                controller: _pageController,
-                onPageChanged: _controller.setTabIndex,
-                children: [
-                  ProfileView(
-                    profile: _controller.profile,
-                    teachers: _controller.teachers,
-                    studentTeacherIds: _controller.studentTeacherIds,
-                    studentAvatarKey:
-                    AvatarStorage.studentKey(_controller.tokens.profileId),
-                    isLoading: _controller.profileLoading,
-                    error: _controller.profileErrorForView,
-                    onRefresh: () =>
-                        _guardedRefresh(_controller.refreshProfile),
-                  ),
-                  GradesView(
-                    grades: _controller.grades,
-                    isLoading: _controller.gradesLoading,
-                    error: _controller.gradesErrorForView,
-                    onRefresh: () => _guardedRefresh(_controller.refreshGrades),
-                  ),
-                  ScheduleView(
-                    schedule: _controller.schedule,
-                    marks: _controller.marks,
-                    grades: _controller.grades,
-                    isLoading: _controller.scheduleLoading,
-                    error: _controller.scheduleErrorForView,
-                    weekStart: _controller.weekStart,
-                    onWeekChanged: _controller.changeWeek,
-                    onRefresh: () =>
-                        _guardedRefresh(_controller.refreshSchedule),
-                  ),
-                  HomeworkView(
-                    homeworks: _controller.homeworks,
-                    isLoading: _controller.homeworksLoading,
-                    error: _controller.homeworksErrorForView,
-                    isActive: _controller.tabIndex == 3,
-                    onRefresh: () =>
-                        _guardedRefresh(_controller.refreshHomeworks),
-                  ),
-                ],
+              ListenableBuilder(
+                listenable: _controller.gradesTick,
+                builder: (context, _) => GradesView(
+                  grades: _controller.grades,
+                  isLoading: _controller.gradesLoading,
+                  error: _controller.gradesErrorForView,
+                  onRefresh: () => _guardedRefresh(_controller.refreshGrades),
+                ),
               ),
-              bottomNavigationBar: _BottomBar(
-                controller: _controller,
-                needsAuth: _session.needsAuth,
-                onTabSelected: _onTabSelected,
-                onRefreshTap: () {
-                  if (_session.needsAuth) {
-                    _showReauthSheet();
-                  } else {
-                    _controller.refreshAll();
-                  }
-                },
+              ListenableBuilder(
+                listenable: _controller.scheduleTick,
+                builder: (context, _) => ScheduleView(
+                  schedule: _controller.schedule,
+                  marks: _controller.marks,
+                  grades: _controller.grades,
+                  isLoading: _controller.scheduleLoading,
+                  error: _controller.scheduleErrorForView,
+                  weekStart: _controller.weekStart,
+                  onWeekChanged: _controller.changeWeek,
+                  onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
+                ),
               ),
+              ListenableBuilder(
+                listenable: _controller.homeworksTick,
+                builder: (context, _) => HomeworkView(
+                  homeworks: _controller.homeworks,
+                  isLoading: _controller.homeworksLoading,
+                  error: _controller.homeworksErrorForView,
+                  isActive: _controller.tabIndex == 3,
+                  onRefresh: () => _guardedRefresh(_controller.refreshHomeworks),
+                ),
+              ),
+            ],
+          ),
+          bottomNavigationBar: ListenableBuilder(
+            listenable: Listenable.merge([_controller, _session]),
+            builder: (context, _) => _BottomBar(
+              controller: _controller,
+              needsAuth: _session.needsAuth,
+              onTabSelected: _onTabSelected,
+              onRefreshTap: () {
+                if (_session.needsAuth) {
+                  _showReauthSheet();
+                } else {
+                  _controller.refreshAll();
+                }
+              },
             ),
-            const AuthWebViewHost(),
-          ],
-        );
-      },
+          ),
+        ),
+        // Скрытый WebView — монтируется по условию, чтобы не жечь память
+        // и CPU движка Chromium, когда он не используется.
+        ListenableBuilder(
+          listenable: needsHiddenWebView,
+          builder: (context, _) {
+            final useDevice = AuthConfig.useDeviceTokenFlow.value;
+            final session = _controller.session;
+            final needsWebView = !useDevice || session.deviceToken == null;
+            if (!needsWebView) return const SizedBox.shrink();
+            return const AuthWebViewHost();
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// AppBar вынесен в отдельный виджет и подписан на контроллер.
+/// Раньше он был частью большого AnimatedBuilder и перестраивался
+/// вместе со всем экраном — теперь только сам AppBar, что дёшево.
+class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final HomeController controller;
+  final VoidCallback onOpenSettings;
+
+  const _HomeAppBar({
+    required this.controller,
+    required this.onOpenSettings,
+  });
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) => AppBar(
+        title: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Text(
+            controller.currentTitle,
+            key: ValueKey(controller.tabIndex),
+          ),
+        ),
+        actions: [
+          if ((controller.tabIndex == 1 || controller.tabIndex == 3) &&
+              (controller.years?.isNotEmpty ?? false))
+            _YearMenu(controller: controller),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Настройки',
+            onPressed: onOpenSettings,
+          ),
+        ],
+      ),
     );
   }
 }

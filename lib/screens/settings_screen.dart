@@ -69,6 +69,7 @@ class SettingsScreen extends StatelessWidget {
 
     await SessionRefreshService.instance.clear();
     await CacheService().clearAll();
+    AvatarStorage.invalidateAll();
     await AppDatabase.instance.clearAll();
     SessionNotifier.instance.reset();
 
@@ -107,6 +108,7 @@ class SettingsScreen extends StatelessWidget {
 
     await SessionRefreshService.instance.clear();
     await MySchoolTokenStorage().clear();
+    AvatarStorage.invalidateAll();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
