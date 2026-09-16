@@ -4,24 +4,25 @@ import 'mark.dart';
 import 'subject_grade.dart';
 
 /// Одна оценка на уроке — значение, когда получили и (опционально)
-/// тип работы.
+/// тип работы. isAbsence — «Н» (отсутствовал), value в этом случае 0.
 class LessonGrade {
   final int value;
   final DateTime? receivedAt;
   final String? workType;
+  final bool isAbsence;
 
-  const LessonGrade(this.value, this.receivedAt, {this.workType});
+  const LessonGrade(
+      this.value,
+      this.receivedAt, {
+        this.workType,
+        this.isAbsence = false,
+      });
 }
 
 /// Быстрый поиск оценок по id урока из schedule_items
 /// (Mark.scheduleLessonId == Lesson.id).
 /// У пары уроков (mergeLessonPairs) secondaryId — id второго урока,
 /// поэтому его оценки тоже подтягиваются.
-///
-/// /core/api/marks не отдаёт человеческое название типа работы —
-/// только control_form_id, который нам не с чем сопоставить. Поэтому
-/// тип работы резолвится матчем с /reports/api/progress/json по
-/// имени предмета (через урок) + значению оценки + ближайшей дате.
 class LessonGradesLookup {
   final Map<int, List<LessonGrade>> _byLessonId;
 
@@ -36,9 +37,6 @@ class LessonGradesLookup {
       }) {
     if (marks == null || marks.isEmpty) return empty;
 
-    // lessonId → имя предмета. Из расписания — потому что у marks
-    // есть только subject_id, а он в разных ручках ЭПОСа, похоже,
-    // из разных пространств.
     final lessonSubject = <int, String>{};
     if (schedule != null) {
       for (final day in schedule) {
@@ -48,7 +46,6 @@ class LessonGradesLookup {
       }
     }
 
-    // имя предмета → SubjectGrade для матча workType.
     final subjectByName = <String, SubjectGrade>{};
     if (grades != null) {
       for (final g in grades) subjectByName[g.name] = g;
@@ -64,8 +61,12 @@ class LessonGradesLookup {
             subjectName: lessonSubject[id],
             subjectByName: subjectByName,
           );
-      map.putIfAbsent(id, () => <LessonGrade>[])
-          .add(LessonGrade(m.value, m.createdAt, workType: workType));
+      map.putIfAbsent(id, () => <LessonGrade>[]).add(LessonGrade(
+        m.value,
+        m.createdAt,
+        workType: workType,
+        isAbsence: m.isAbsence,
+      ));
     }
 
     for (final list in map.values) {
@@ -80,12 +81,6 @@ class LessonGradesLookup {
     return LessonGradesLookup._(map);
   }
 
-  /// Ищем тип работы по имени предмета + значению оценки + дате.
-  ///
-  /// Внутри SubjectGrade могут быть несколько оценок с одинаковым
-  /// значением (две «5» в контрольной и в домашней). Тогда берём ту,
-  /// чья дата ближе всего к дате получения марки. Если дат нет вообще
-  /// — отдаём первый найденный workType.
   static String? _resolveWorkType(
       Mark mark, {
         String? subjectName,

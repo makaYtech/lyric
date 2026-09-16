@@ -42,11 +42,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
 
-    // КРИТИЧНО: SessionNotifier — глобальный синглтон, его флаг переживает
-    // переход LoginScreen → HomeScreen. Если не сбросить, _guardedRefresh
-    // молча блокирует все обновления, а markExpired() не будит слушателей
-    // (там ранний return при уже взведённом флаге) — экран висит с вечным
-    // спиннером и не реагирует на pull-to-refresh.
     _session.reset();
     AuthCoordinator.instance.setSession(widget.session);
 
@@ -67,10 +62,6 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  // ── Реакция на истёкшую сессию ─────────────────────────────────────────
-
-  /// Сюда доходит только то, что не смог починить AuthCoordinator внутри
-  /// ApiClient — то есть сессия реально мёртва и нужен живой человек.
   void _onSessionChanged() {
     if (!mounted) return;
     if (_session.needsAuth && !_reauthModalOpen) {
@@ -99,9 +90,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _runReauth() async {
-    // Какой экран открыть — решает флаг AuthConfig. Значение читаем
-    // один раз при открытии диалога; переключение флага в DeveloperScreen
-    // в момент открытой модалки не отслеживаем — это не имеет смысла.
     final useDevice = AuthConfig.useDeviceTokenFlow.value;
 
     final session = await Navigator.of(context).push<EposSession>(
@@ -121,8 +109,6 @@ class _HomeScreenState extends State<HomeScreen> {
     AttachmentService.instance.setSession(session);
     await _controller.refreshAll();
   }
-
-  // ── Общее ──────────────────────────────────────────────────────────────
 
   void _showErrorSnack(String message) {
     if (!mounted) return;
@@ -162,19 +148,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Раньше тут стоял ранний выход при needsAuth, из-за чего экран с
-  /// протухшим флагом намертво переставал обновляться. Теперь обновление
-  /// всегда разрешено: ApiClient сам попробует тихо продлить сессию.
   Future<void> _guardedRefresh(Future<void> Function() fn) => fn();
 
   @override
   Widget build(BuildContext context) {
-    // Скрытый WebView нужен ТОЛЬКО для legacy-сессий: legacy refresh идёт
-    // через Phase C в этом WebView. Для device-token-сессии он простаивает.
-    // Условие "или" покрывает случай, когда флаг уже true (device-token),
-    // но сессия ещё старая (у пользователя после обновления приложения):
-    // такое бывает, если он не перелогинивался — тогда refresh пойдёт
-    // по legacy-пути, и WebView должен быть на месте.
     final needsHiddenWebView = Listenable.merge([
       AuthConfig.useDeviceTokenFlow,
       _controller,
@@ -219,11 +196,51 @@ class _HomeScreenState extends State<HomeScreen> {
                   schedule: _controller.schedule,
                   marks: _controller.marks,
                   grades: _controller.grades,
+                  bells: _controller.bells,
                   isLoading: _controller.scheduleLoading,
                   error: _controller.scheduleErrorForView,
                   weekStart: _controller.weekStart,
                   onWeekChanged: _controller.changeWeek,
-                  onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
+                  onRefresh: () =>
+                      _guardedRefresh(_controller.refreshSchedule),
+                  onDeleteLessons: (date, ids) =>
+                      _controller.deleteScheduleLessons(
+                        date: date,
+                        lessonIds: ids,
+                      ),
+                  onMoveLessons: (date, moves) =>
+                      _controller.moveScheduleLessons(
+                        date: date,
+                        moves: moves,
+                      ),
+                  onRevertOverrideIds: (ids) =>
+                      _controller.revertScheduleOverrides(ids),
+                  onRevertOverride: (id) =>
+                      _controller.revertScheduleOverride(id),
+                  onRevertWeek: () => _controller.revertWeekOverrides(),
+                  onLoadWeekOverrides: () => _controller.loadWeekOverrides(),
+                  onLoadWeekRawLessons: () =>
+                      _controller.loadWeekRawLessons(),
+                  daysWithOverrides: _controller.daysWithOverrides,
+                  changedLessonIds: _controller.changedLessonIds,
+                  onBreakPair: (date, primaryId, secondaryId) =>
+                      _controller.breakSchedulePair(
+                        date: date,
+                        primaryId: primaryId,
+                        secondaryId: secondaryId,
+                      ),
+                  onMakePair: (date, primaryId, secondaryId) =>
+                      _controller.makeSchedulePair(
+                        date: date,
+                        primaryId: primaryId,
+                        secondaryId: secondaryId,
+                      ),
+                  onReorderLessons: (date, orig, next) =>
+                      _controller.reorderScheduleDay(
+                        date: date,
+                        originalOrder: orig,
+                        newOrder: next,
+                      ),
                 ),
               ),
               ListenableBuilder(
@@ -233,7 +250,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   isLoading: _controller.homeworksLoading,
                   error: _controller.homeworksErrorForView,
                   isActive: _controller.tabIndex == 3,
-                  onRefresh: () => _guardedRefresh(_controller.refreshHomeworks),
+                  onRefresh: () =>
+                      _guardedRefresh(_controller.refreshHomeworks),
                 ),
               ),
             ],
@@ -254,8 +272,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ),
-        // Скрытый WebView — монтируется по условию, чтобы не жечь память
-        // и CPU движка Chromium, когда он не используется.
         ListenableBuilder(
           listenable: needsHiddenWebView,
           builder: (context, _) {
@@ -271,9 +287,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// AppBar вынесен в отдельный виджет и подписан на контроллер.
-/// Раньше он был частью большого AnimatedBuilder и перестраивался
-/// вместе со всем экраном — теперь только сам AppBar, что дёшево.
 class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   final HomeController controller;
   final VoidCallback onOpenSettings;

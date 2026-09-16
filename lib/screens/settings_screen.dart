@@ -63,9 +63,7 @@ class SettingsScreen extends StatelessWidget {
 
     try {
       await WebViewCookieManager().clearCookies();
-    } catch (_) {
-      // Не критично.
-    }
+    } catch (_) {}
 
     await SessionRefreshService.instance.clear();
     await CacheService().clearAll();
@@ -143,6 +141,26 @@ class SettingsScreen extends StatelessWidget {
       ),
     );
     if (picked != null) onPicked(picked);
+  }
+
+  Future<void> _pickGapThreshold(BuildContext context) async {
+    final current = SchedulePrefs.gapThresholdMinutes.value;
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Порог окна'),
+        children: [
+          for (final v in SchedulePrefs.gapThresholdOptions)
+            RadioListTile<int>(
+              title: Text('Больше $v мин'),
+              value: v,
+              groupValue: current,
+              onChanged: (x) => Navigator.of(ctx).pop(x),
+            ),
+        ],
+      ),
+    );
+    if (picked != null) SchedulePrefs.setGapThresholdMinutes(picked);
   }
 
   Future<void> _resetStudentAvatar(BuildContext context) async {
@@ -274,9 +292,6 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  /// Предупреждение + переход на DeveloperScreen. Предупреждение
-  /// показывается ровно один раз при входе — внутри экрана уже нет
-  /// дополнительных блокировок.
   Future<void> _openDeveloper(BuildContext context) async {
     final proceed = await showDialog<bool>(
       context: context,
@@ -387,6 +402,41 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   value: merge,
                   onChanged: SchedulePrefs.setMergePairs,
+                ),
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: SchedulePrefs.showOverrides,
+                builder: (context, value, _) => SwitchListTile(
+                  title: const Text('Показывать мои правки'),
+                  subtitle: const Text(
+                    'Выключи, чтобы увидеть расписание строго как на '
+                        'сервере. Правки не удалятся и вернутся при '
+                        'включении обратно',
+                  ),
+                  value: value,
+                  onChanged: SchedulePrefs.setShowOverrides,
+                ),
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: SchedulePrefs.showGaps,
+                builder: (context, value, _) => SwitchListTile(
+                  title: const Text('Показывать окна'),
+                  subtitle: const Text(
+                    'Между уроками с большим перерывом показывается '
+                        'карточка «Окно»',
+                  ),
+                  value: value,
+                  onChanged: SchedulePrefs.setShowGaps,
+                ),
+              ),
+              ValueListenableBuilder<int>(
+                valueListenable: SchedulePrefs.gapThresholdMinutes,
+                builder: (context, value, _) => ListTile(
+                  title: const Text('Порог окна'),
+                  subtitle: Text('Больше $value мин перерыва — окно'),
+                  enabled: SchedulePrefs.showGaps.value,
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _pickGapThreshold(context),
                 ),
               ),
               const Divider(height: 32),
@@ -537,7 +587,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 title: const Text('Для разработчика'),
                 subtitle: const Text(
-                  'Настройки, которые ненужно менять',
+                  'Сброс токенов, кэша и БД по частям. Опасно',
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _openDeveloper(context),

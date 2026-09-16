@@ -5,8 +5,6 @@ import '../util/date_time.dart';
 import 'app_database.dart';
 
 /// marks живут по неделям: перезаписываем всю неделю за раз.
-/// Ключ — id марки (уникальный в ЭПОСе), это исключает дубли при
-/// повторной записи той же недели.
 class MarksDao {
   Future<void> saveWeek(int yearId, DateTime monday, List<Mark> marks) async {
     final db = await AppDatabase.instance.database;
@@ -16,8 +14,6 @@ class MarksDao {
     final sundayStr = isoDate(sunday);
 
     await db.transaction((txn) async {
-      // Перезаписываем неделю целиком — иначе «удалённые» на сервере
-      // оценки останутся в локальной БД.
       await txn.delete(
         AppDatabase.tableMarks,
         where: 'year_id = ? AND date BETWEEN ? AND ?',
@@ -42,6 +38,7 @@ class MarksDao {
             'teacher_id': m.teacherId,
             'updated_at': now,
             'work_type': m.workType,
+            'is_absence': m.isAbsence ? 1 : 0,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
@@ -89,6 +86,7 @@ class MarksDao {
       groupId: r['group_id'] as int?,
       teacherId: r['teacher_id'] as int?,
       workType: r['work_type'] as String?,
+      isAbsence: (r['is_absence'] as int? ?? 0) == 1,
     );
   }
 }

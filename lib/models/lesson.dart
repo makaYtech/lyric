@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'homework_attachment.dart';
 
+enum LessonPairOverride { breakWithNext }
+
 class Lesson {
   final int? id;
   final int? secondaryId;
@@ -10,20 +12,20 @@ class Lesson {
   final String subject;
   final int? subjectId;
   final List<String> homeworks;
-  /// id записей student_homework, параллельно [homeworks] по индексу.
-  /// Нужны, чтобы из модалки урока можно было прикрепить свой файл
-  /// к конкретному ДЗ. 0 — id неизвестен, прикрепление недоступно.
   final List<int> studentHomeworkIds;
   final List<HomeworkAttachment> attachments;
   final String? teacher;
-
-  /// Числовой id учителя из schedule_items. Нужен, чтобы понять,
-  /// какие учителя реально ведут уроки у текущего ученика.
   final int? teacherId;
-
   final String? room;
   final bool isPaired;
   final int? breakMinutes;
+  final LessonPairOverride? pairOverride;
+
+  /// Синтетический урок-окно: разрыв между двумя соседними уроками,
+  /// который достаточно длинный, чтобы его показать. У таких уроков
+  /// отрицательный id (генерируется на клиенте) и пустые поля, кроме
+  /// startTime/endTime. В БД НЕ сохраняется, вычисляется на лету.
+  final bool isGap;
 
   const Lesson({
     this.id,
@@ -40,7 +42,54 @@ class Lesson {
     this.isPaired = false,
     this.breakMinutes,
     this.studentHomeworkIds = const [],
+    this.pairOverride,
+    this.isGap = false,
   });
+
+  /// Длительность в минутах. Для окна это длина разрыва.
+  int? get durationMinutes {
+    final s = _minutes(startTime);
+    final e = _minutes(endTime);
+    if (s == null || e == null) return null;
+    return e - s;
+  }
+
+  Lesson copyWith({
+    int? id,
+    int? secondaryId,
+    String? startTime,
+    String? endTime,
+    String? subject,
+    int? subjectId,
+    List<String>? homeworks,
+    List<HomeworkAttachment>? attachments,
+    String? teacher,
+    int? teacherId,
+    String? room,
+    bool? isPaired,
+    int? breakMinutes,
+    List<int>? studentHomeworkIds,
+    LessonPairOverride? pairOverride,
+    bool? isGap,
+  }) =>
+      Lesson(
+        id: id ?? this.id,
+        secondaryId: secondaryId ?? this.secondaryId,
+        startTime: startTime ?? this.startTime,
+        endTime: endTime ?? this.endTime,
+        subject: subject ?? this.subject,
+        subjectId: subjectId ?? this.subjectId,
+        homeworks: homeworks ?? this.homeworks,
+        attachments: attachments ?? this.attachments,
+        teacher: teacher ?? this.teacher,
+        teacherId: teacherId ?? this.teacherId,
+        room: room ?? this.room,
+        isPaired: isPaired ?? this.isPaired,
+        breakMinutes: breakMinutes ?? this.breakMinutes,
+        studentHomeworkIds: studentHomeworkIds ?? this.studentHomeworkIds,
+        pairOverride: pairOverride ?? this.pairOverride,
+        isGap: isGap ?? this.isGap,
+      );
 
   factory Lesson.fromJson(Map<String, dynamic> json) => Lesson(
     id: json['id'] as int?,
@@ -70,7 +119,6 @@ class Lesson {
     'student_homework_ids': studentHomeworkIds,
   };
 
-  /// Раньше в БД/кэше лежала одна строка ДЗ, теперь — JSON-список.
   static List<String> decodeHomeworks(Object? raw) {
     if (raw == null) return const [];
     if (raw is List) return raw.whereType<String>().toList();
@@ -78,9 +126,7 @@ class Lesson {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is List) return decoded.whereType<String>().toList();
-      } catch (_) {
-        // не JSON — значит старый формат, одна строка ДЗ.
-      }
+      } catch (_) {}
       return [raw];
     }
     return const [];
@@ -106,6 +152,7 @@ class Lesson {
     if (h == null || m == null) return null;
     return h * 60 + m;
   }
+
   static List<int> _decodeIds(Object? raw) {
     if (raw is List) return raw.whereType<num>().map((e) => e.toInt()).toList();
     if (raw is String && raw.isNotEmpty) {
@@ -118,52 +165,60 @@ class Lesson {
   }
 }
 
-/// Объединяет подряд идущие одинаковые уроки (тот же предмет, учитель,
-/// кабинет) в одну пару. Сохраняет id второго урока в secondaryId —
-/// чтобы оценки, привязанные ко второму уроку, тоже попали в пару.
 List<Lesson> mergeLessonPairs(List<Lesson> lessons) {
   final result = <Lesson>[];
   var i = 0;
   while (i < lessons.length) {
     final a = lessons[i];
-    if (i + 1 < lessons.length && _sameSlot(a, lessons[i + 1])) {
-      final b = lessons[i + 1];
-      final homeworks = <String>[...a.homeworks, ...b.homeworks];
-      final startMin = a._minutes(a.endTime);
-      final endMin = b._minutes(b.startTime);
-
-      // Вложения склеиваем с дедупом по url — иначе два одинаковых
-      // файла от разных половин пары будут висеть дважды.
-      final seen = <String>{};
-      final attachments = <HomeworkAttachment>[];
-      for (final att in [...a.attachments, ...b.attachments]) {
-        if (seen.add(att.url)) attachments.add(att);
-      }
-
-      result.add(Lesson(
-        id: a.id,
-        secondaryId: b.id,
-        startTime: a.startTime,
-        endTime: b.endTime,
-        subject: a.subject,
-        subjectId: a.subjectId,
-        homeworks: homeworks,
-        attachments: attachments,
-        teacher: a.teacher,
-        teacherId: a.teacherId,
-        room: a.room,
-        isPaired: true,
-        breakMinutes:
-        (startMin != null && endMin != null) ? endMin - startMin : null,
-        studentHomeworkIds: [...a.studentHomeworkIds, ...b.studentHomeworkIds],
-      ));
-      i += 2;
-    } else {
+    if (a.pairOverride == LessonPairOverride.breakWithNext || a.isGap) {
       result.add(a);
       i += 1;
+      continue;
     }
+    if (i + 1 < lessons.length) {
+      final b = lessons[i + 1];
+      if (b.pairOverride != LessonPairOverride.breakWithNext &&
+          !b.isGap &&
+          _sameSlot(a, b)) {
+        result.add(_mergeTwo(a, b));
+        i += 2;
+        continue;
+      }
+    }
+    result.add(a);
+    i += 1;
   }
   return result;
+}
+
+Lesson _mergeTwo(Lesson a, Lesson b) {
+  final homeworks = <String>[...a.homeworks, ...b.homeworks];
+  final startMin = a._minutes(a.endTime);
+  final endMin = b._minutes(b.startTime);
+
+  final seen = <String>{};
+  final attachments = <HomeworkAttachment>[];
+  for (final att in [...a.attachments, ...b.attachments]) {
+    if (seen.add(att.url)) attachments.add(att);
+  }
+
+  return Lesson(
+    id: a.id,
+    secondaryId: b.id,
+    startTime: a.startTime,
+    endTime: b.endTime,
+    subject: a.subject,
+    subjectId: a.subjectId,
+    homeworks: homeworks,
+    attachments: attachments,
+    teacher: a.teacher,
+    teacherId: a.teacherId,
+    room: a.room,
+    isPaired: true,
+    breakMinutes:
+    (startMin != null && endMin != null) ? endMin - startMin : null,
+    studentHomeworkIds: [...a.studentHomeworkIds, ...b.studentHomeworkIds],
+  );
 }
 
 bool _sameSlot(Lesson a, Lesson b) =>

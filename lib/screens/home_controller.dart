@@ -9,13 +9,17 @@ import '../core/settings/homework_prefs.dart';
 import '../core/settings/schedule_prefs.dart';
 import '../core/settings/teacher_prefs.dart';
 import '../models/academic_year.dart';
+import '../models/bells_timetable.dart';
 import '../models/day_schedule.dart';
 import '../models/homework.dart';
+import '../models/lesson.dart';
 import '../models/mark.dart';
+import '../models/schedule_override.dart';
 import '../models/student_profile.dart';
 import '../models/subject_grade.dart';
 import '../models/teacher.dart';
 import '../repositories/academic_years_repository.dart';
+import '../repositories/bells_repository.dart';
 import '../repositories/grades_repository.dart';
 import '../repositories/homework_repository.dart';
 import '../repositories/marks_repository.dart';
@@ -39,6 +43,7 @@ class HomeController extends ChangeNotifier {
     MarksRepository? marksRepository,
     HomeworkRepository? homeworkRepository,
     TeachersRepository? teachersRepository,
+    BellsRepository? bellsRepository,
     CacheService? cache,
   })  : _session = session,
         _onError = onError,
@@ -50,14 +55,12 @@ class HomeController extends ChangeNotifier {
         _marksRepository = marksRepository ?? MarksRepository(),
         _homeworkRepository = homeworkRepository ?? HomeworkRepository(),
         _teachersRepository = teachersRepository ?? TeachersRepository(),
+        _bellsRepository = bellsRepository ?? BellsRepository(),
         _cache = cache ?? CacheService() {
     _weekStart = _currentMonday();
   }
 
   EposSession _session;
-  // Актуальная сессия живёт в AuthCoordinator: он её обновляет молча,
-  // прямо посреди запросов. Читаем оттуда, иначе после тихого re-auth
-  // репозитории уйдут со старым, уже мёртвым authToken.
   EposSession get session => AuthCoordinator.instance.session ?? _session;
   EposTokens get tokens => session.tokens;
 
@@ -71,32 +74,18 @@ class HomeController extends ChangeNotifier {
   final MarksRepository _marksRepository;
   final HomeworkRepository _homeworkRepository;
   final TeachersRepository _teachersRepository;
+  final BellsRepository _bellsRepository;
   final CacheService _cache;
 
   static const _selectedYearKey = 'selected_academic_year_id';
   static const _studentTeacherIdsKey = 'student_teacher_ids';
   static const _fallbackYearId = 14;
+  static const _bellsTimetableIdFallback = 124412;
 
   static const titles = ['Профиль', 'Оценки', 'Расписание', 'ДЗ'];
 
   bool _disposed = false;
 
-  // ── Узкие каналы обновления вкладок ────────────────────────────────────
-  //
-  // Раньше HomeScreen оборачивал весь Scaffold в AnimatedBuilder(animation:
-  // this), и любой notifyListeners() пересобирал AppBar, PageView,
-  // BottomBar и все четыре вкладки. Самая дорогая часть — ScheduleView
-  // с пересборкой LessonGradesLookup.fromMarks (полный проход по marks +
-  // построение словарей). Она зря дёргалась даже при refreshHomeworks,
-  // который к расписанию отношения не имеет.
-  //
-  // Теперь каждая вкладка подписана на свой тик и перестраивается только
-  // когда меняется именно её состояние. notifyListeners() остался для
-  // AppBar и BottomBar — там нужны tabIndex/years/anyLoading/needsAuth,
-  // а они меняются часто и дёшевы в пересборке.
-  //
-  // Инкремент тика = "состояние этой вкладки обновилось, перерисуй".
-  // Значение счётчика не имеет смысла, важен сам факт изменения.
   final profileTick = ValueNotifier<int>(0);
   final gradesTick = ValueNotifier<int>(0);
   final scheduleTick = ValueNotifier<int>(0);
@@ -151,6 +140,15 @@ class HomeController extends ChangeNotifier {
   String? _scheduleError;
   String? get scheduleError => _scheduleError;
 
+  BellsTimetable? _bells;
+  BellsTimetable? get bells => _bells;
+
+  Set<String> _daysWithOverrides = const {};
+  Set<String> get daysWithOverrides => _daysWithOverrides;
+
+  Set<int> _changedLessonIds = const {};
+  Set<int> get changedLessonIds => _changedLessonIds;
+
   List<Mark>? _marks;
   List<Mark>? get marks => _marks;
 
@@ -200,21 +198,21 @@ class HomeController extends ChangeNotifier {
     await HomeworkPrefs.load();
     await TeacherPrefs.load();
     await BackendPrefs.load();
-    // Кэш — вещь опциональная. Если база не открылась или схема битая,
-    // это не повод не идти в сеть: раньше исключение отсюда обрывало
-    // init(), refreshAll() не вызывался, и все флаги загрузки навсегда
-    // оставались true — экран висел в вечной загрузке без ошибок.
+    SchedulePrefs.showOverrides.addListener(_onShowOverridesChanged);
+
     try {
       await _loadCachedAll();
     } catch (e) {
       debugPrint('Кэш не загрузился: $e');
     }
+    await _loadBells();
     await refreshAll();
   }
 
   @override
   void dispose() {
     _disposed = true;
+    SchedulePrefs.showOverrides.removeListener(_onShowOverridesChanged);
     profileTick.dispose();
     gradesTick.dispose();
     scheduleTick.dispose();
@@ -227,14 +225,13 @@ class HomeController extends ChangeNotifier {
     notifyListeners();
   }
 
+  void _onShowOverridesChanged() {
+    refreshSchedule(silent: true);
+  }
+
   void setTabIndex(int i) {
     if (i == _tabIndex) return;
     _tabIndex = i;
-    // Вкладки слушают свои тики, но при смене таба нужно обновить
-    // те, чьё состояние зависит от isActive (HomeworkView) или от
-    // того, что мы на них только что переключились. Проще всего —
-    // дёрнуть все: пересборка ListenableBuilder'ов дешёвая, реальные
-    // StatefulWidget'ы пересоберутся только при смене пропсов.
     profileTick.value++;
     gradesTick.value++;
     scheduleTick.value++;
@@ -248,6 +245,39 @@ class HomeController extends ChangeNotifier {
     await SessionRefreshService.instance.save(session);
     SessionNotifier.instance.clear();
     _notify();
+  }
+
+  // ── Bells ──────────────────────────────────────────────────────────────
+
+  Future<void> _loadBells() async {
+    try {
+      final cached = await _bellsRepository.loadCached(_selectedYearId);
+      if (_disposed) return;
+      if (cached != null) {
+        _bells = cached;
+        scheduleTick.value++;
+        _notify();
+      }
+
+      final updated = await _bellsRepository.lastUpdated(_selectedYearId);
+      final stale = updated == null ||
+          DateTime.now().difference(updated).inHours > 24;
+      if (cached != null && !stale) return;
+
+      final fresh = await _bellsRepository.refresh(
+        tokens,
+        timetableId: _bellsTimetableIdFallback,
+        academicYearId: _selectedYearId,
+      );
+      if (_disposed) return;
+      _bells = fresh;
+      scheduleTick.value++;
+      _notify();
+    } on SessionExpiredException {
+      SessionNotifier.instance.markExpired();
+    } catch (e) {
+      debugPrint('bells не загрузились: $e');
+    }
   }
 
   // ── Кэш ────────────────────────────────────────────────────────────────
@@ -314,9 +344,20 @@ class HomeController extends ChangeNotifier {
     _homeworksUpdated = homeworksUpdated;
     _teachers = teachers;
     _teachersUpdated = teachersUpdated;
+
+    _daysWithOverrides = await _scheduleRepository.loadDaysWithOverrides(
+      _weekStart,
+      yearId,
+    );
+    final cachedOverrides = await _scheduleRepository.loadWeekOverrides(
+      _weekStart,
+      yearId,
+    );
+    _changedLessonIds = SchedulePrefs.showOverrides.value
+        ? _changedIdsFrom(cachedOverrides)
+        : const {};
+
     _notify();
-    // Только теперь имеет смысл дёргать тики вкладок: данные из кэша
-    // уже разложены по полям, вкладки прочитают актуальные значения.
     profileTick.value++;
     gradesTick.value++;
     scheduleTick.value++;
@@ -351,8 +392,6 @@ class HomeController extends ChangeNotifier {
     try {
       await runBody();
     } on SessionExpiredException {
-      // ApiClient уже попробовал обновиться сам и не смог — markExpired
-      // там же и выставлен. Своей ошибки не рисуем: покажется шторка входа.
     } catch (e) {
       if (_disposed) return;
       setError('Не удалось обновить: $e');
@@ -366,9 +405,6 @@ class HomeController extends ChangeNotifier {
     }
   }
 
-  /// Годы — первыми и обязательно до остального: на чистой установке
-  /// _selectedYearId равен фолбэку (14), и все запросы с ним уходят
-  /// «в никуда», возвращая пустоту.
   Future<void> refreshAll() async {
     await _refreshYears();
     await Future.wait([
@@ -385,8 +421,7 @@ class HomeController extends ChangeNotifier {
     setError: (e) => _profileError = e,
     revision: profileTick,
     body: () async {
-      final profile =
-      await _profileRepository.refresh(tokens);
+      final profile = await _profileRepository.refresh(tokens);
       final updated = await _profileRepository.lastUpdated();
       if (_disposed) return;
       _profile = profile;
@@ -441,9 +476,7 @@ class HomeController extends ChangeNotifier {
       _notify();
     } on SessionExpiredException {
       SessionNotifier.instance.markExpired();
-    } catch (_) {
-      // намеренно молча
-    }
+    } catch (_) {}
   }
 
   Future<void> refreshGrades({bool silent = false}) => _runRefresh(
@@ -474,9 +507,7 @@ class HomeController extends ChangeNotifier {
     } on SessionExpiredException {
       SessionNotifier.instance.markExpired();
       rethrow;
-    } catch (_) {
-      // намеренно молча
-    }
+    } catch (_) {}
   }
 
   Future<void> refreshSchedule({bool silent = false}) => _runRefresh(
@@ -532,6 +563,7 @@ class HomeController extends ChangeNotifier {
       _schedule = schedule;
       _marks = marks;
       _scheduleUpdated = updated;
+      await _refreshOverridesMeta();
     },
     errorToast: 'Не удалось обновить расписание',
     silent: silent,
@@ -564,6 +596,163 @@ class HomeController extends ChangeNotifier {
     return (DateTime(year, 9, 1), DateTime(year + 1, 8, 31));
   }
 
+  // ── Правки расписания ─────────────────────────────────────────────────
+
+  static String _isoDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+
+  Set<int> _changedIdsFrom(List<ScheduleOverride> overrides) {
+    final out = <int>{};
+    for (final o in overrides) {
+      switch (o.kind) {
+        case ScheduleOverrideKind.delete:
+        case ScheduleOverrideKind.move:
+          out.add(o.primaryLessonId);
+        case ScheduleOverrideKind.pairBreak:
+        case ScheduleOverrideKind.pairMake:
+          out.add(o.primaryLessonId);
+          final s = o.secondaryLessonId;
+          if (s != null) out.add(s);
+        case ScheduleOverrideKind.reorder:
+          out.addAll(o.reorderOrder());
+      }
+    }
+    return out;
+  }
+
+  Future<void> _refreshOverridesMeta() async {
+    if (!SchedulePrefs.showOverrides.value) {
+      if (_disposed) return;
+      _daysWithOverrides = const {};
+      _changedLessonIds = const {};
+      return;
+    }
+    final overrides = await _scheduleRepository.loadWeekOverrides(
+      _weekStart,
+      _selectedYearId,
+    );
+    if (_disposed) return;
+    _daysWithOverrides = overrides.map((o) => _isoDate(o.date)).toSet();
+    _changedLessonIds = _changedIdsFrom(overrides);
+  }
+
+  Future<void> _reloadScheduleFromCache() async {
+    final cached =
+    await _scheduleRepository.loadCached(_weekStart, _selectedYearId);
+    final updated =
+    await _scheduleRepository.lastUpdated(_weekStart, _selectedYearId);
+
+    if (_disposed) return;
+    if (cached != null) {
+      _schedule = cached;
+    }
+    _scheduleUpdated = updated;
+    await _refreshOverridesMeta();
+    if (_disposed) return;
+    scheduleTick.value++;
+    _notify();
+  }
+
+  Future<List<int>> deleteScheduleLessons({
+    required DateTime date,
+    required Iterable<int> lessonIds,
+  }) async {
+    final ids = lessonIds.toList();
+    if (ids.isEmpty) return const [];
+
+    final overrideIds = await _scheduleRepository.markDeletedMany(
+      yearId: _selectedYearId,
+      date: date,
+      lessonIds: ids,
+    );
+
+    await _reloadScheduleFromCache();
+    return overrideIds;
+  }
+
+  /// Пакетный перенос уроков в конкретные слоты (drop на окно).
+  Future<List<int>> moveScheduleLessons({
+    required DateTime date,
+    required List<({int lessonId, String startTime, String endTime})> moves,
+  }) async {
+    if (moves.isEmpty) return const [];
+    final ids = await _scheduleRepository.moveLessons(
+      yearId: _selectedYearId,
+      date: date,
+      moves: moves,
+    );
+    await _reloadScheduleFromCache();
+    return ids;
+  }
+
+  Future<void> breakSchedulePair({
+    required DateTime date,
+    required int primaryId,
+    required int secondaryId,
+  }) async {
+    await _scheduleRepository.breakPair(
+      yearId: _selectedYearId,
+      date: date,
+      primaryId: primaryId,
+      secondaryId: secondaryId,
+    );
+    await _reloadScheduleFromCache();
+  }
+
+  Future<void> makeSchedulePair({
+    required DateTime date,
+    required int primaryId,
+    required int secondaryId,
+  }) async {
+    await _scheduleRepository.makePair(
+      yearId: _selectedYearId,
+      date: date,
+      primaryId: primaryId,
+      secondaryId: secondaryId,
+    );
+    await _reloadScheduleFromCache();
+  }
+
+  Future<List<int>> reorderScheduleDay({
+    required DateTime date,
+    required List<Lesson> originalOrder,
+    required List<Lesson> newOrder,
+  }) async {
+    final ids = await _scheduleRepository.reorderDayLessons(
+      yearId: _selectedYearId,
+      date: date,
+      originalOrder: originalOrder,
+      newOrder: newOrder,
+    );
+    if (ids.isNotEmpty) {
+      await _reloadScheduleFromCache();
+    }
+    return ids;
+  }
+
+  Future<void> revertScheduleOverrides(Iterable<int> ids) async {
+    await _scheduleRepository.revertOverrideIds(ids);
+    await _reloadScheduleFromCache();
+  }
+
+  Future<void> revertScheduleOverride(int id) async {
+    await _scheduleRepository.revertOverride(id);
+    await _reloadScheduleFromCache();
+  }
+
+  Future<void> revertWeekOverrides() async {
+    await _scheduleRepository.revertWeek(_selectedYearId, _weekStart);
+    await _reloadScheduleFromCache();
+  }
+
+  Future<List<ScheduleOverride>> loadWeekOverrides() =>
+      _scheduleRepository.loadWeekOverrides(_weekStart, _selectedYearId);
+
+  Future<List<DaySchedule>> loadWeekRawLessons() =>
+      _scheduleRepository.loadWeekRaw(_weekStart, _selectedYearId);
+
   // ── Смена недели/года ──────────────────────────────────────────────────
 
   Future<void> changeWeek(DateTime newMonday) async {
@@ -584,6 +773,8 @@ class HomeController extends ChangeNotifier {
     _schedule = cached;
     _scheduleUpdated = updated;
     _marks = cachedMarks.isEmpty ? null : cachedMarks;
+    await _refreshOverridesMeta();
+    if (_disposed) return;
     scheduleTick.value++;
     _notify();
 
@@ -624,6 +815,7 @@ class HomeController extends ChangeNotifier {
     profileTick.value++;
     _notify();
 
+    await _loadBells();
     await refreshGrades(silent: true);
     await refreshHomeworks(silent: true);
     await _refreshTeachers();

@@ -4,23 +4,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// Единственное соединение с локальной SQLite-базой.
-///
-/// lessons       — расписание + дз (текущее состояние, без истории).
-/// grades        — оценки: текущий срез по разрезу
-///                  (год, предмет, период, вид работы) + даты и комменты.
-/// grade_history — прошлые версии grades.grades_json.
-/// marks         — индивидуальные оценки из /core/api/marks,
-///                  нужны расписанию: точки с временем получения.
-/// homeworks     — ДЗ по году из /core/api/student_homeworks.
-/// teachers      — учителя школы из /core/api/teacher_profiles
-///                  (с обогащением через /core/api/rooms).
 class AppDatabase {
   AppDatabase._();
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 11;
+  static const _version = 14;
 
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
@@ -28,6 +17,8 @@ class AppDatabase {
   static const tableMarks = 'marks';
   static const tableHomeworks = 'homeworks';
   static const tableTeachers = 'teachers';
+  static const tableScheduleOverrides = 'schedule_overrides';
+  static const tableBells = 'bells_timetables';
 
   Database? _db;
   Future<Database>? _opening;
@@ -55,9 +46,6 @@ class AppDatabase {
     try {
       return await _openAt(path);
     } catch (_) {
-      // База битая или недосоздана (например, схема упала на полпути).
-      // Кэш — не ценные данные, сносим файл и создаём заново: это лучше,
-      // чем навсегда неработающее приложение.
       try {
         final file = File(path);
         if (await file.exists()) await file.delete();
@@ -73,13 +61,11 @@ class AppDatabase {
       onCreate: (db, _) async => _createAll(db),
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          // v1 хранил всё в kv_cache — не жалко, дропаем и создаём заново.
           await db.execute('DROP TABLE IF EXISTS kv_cache');
           await _createAll(db);
           return;
         }
         if (oldVersion < 3) {
-          // v2 → v3: даты и комментарии для оценок + таблица marks.
           await db.execute(
             'ALTER TABLE $tableGrades ADD COLUMN dates_json TEXT',
           );
@@ -89,8 +75,6 @@ class AppDatabase {
           await _createMarksTable(db);
         }
         if (oldVersion < 6) {
-          // homeworks успела пожить в нескольких несовместимых схемах.
-          // ALTER-ми это чинить бессмысленно — дропаем и создаём заново.
           await db.execute('DROP TABLE IF EXISTS $tableHomeworks');
           await _createHomeworksTable(db);
         }
@@ -98,8 +82,6 @@ class AppDatabase {
           await _createTeachersTable(db);
         }
         if (oldVersion < 9) {
-          // lessons получили teacher_id (числовой id учителя) — нужно,
-          // чтобы понять, какие учителя ведут у текущего ученика.
           if (!await _columnExists(db, tableLessons, 'teacher_id')) {
             await db.execute(
               'ALTER TABLE $tableLessons ADD COLUMN teacher_id INTEGER',
@@ -135,6 +117,20 @@ class AppDatabase {
             );
           }
         }
+        if (oldVersion < 12) {
+          await _createScheduleOverridesTable(db);
+        }
+        if (oldVersion < 13) {
+          await _createBellsTable(db);
+        }
+        if (oldVersion < 14) {
+          if (!await _columnExists(db, tableMarks, 'is_absence')) {
+            await db.execute(
+              'ALTER TABLE $tableMarks '
+                  'ADD COLUMN is_absence INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+        }
       },
     );
   }
@@ -145,10 +141,6 @@ class AppDatabase {
   }
 
   Future<void> _createAll(Database db) async {
-    // ВНИМАНИЕ: никаких висячих запятых перед закрывающей скобкой —
-    // SQLite отвечает «near ")": syntax error», onCreate падает целиком,
-    // и приложение остаётся вообще без базы (проявляется только на
-    // чистой установке, потому что onCreate больше нигде не вызывается).
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableLessons (
         id INTEGER PRIMARY KEY,
@@ -203,6 +195,8 @@ class AppDatabase {
     await _createMarksTable(db);
     await _createHomeworksTable(db);
     await _createTeachersTable(db);
+    await _createScheduleOverridesTable(db);
+    await _createBellsTable(db);
   }
 
   Future<void> _createMarksTable(Database db) async {
@@ -218,6 +212,7 @@ class AppDatabase {
         group_id INTEGER,
         teacher_id INTEGER,
         work_type TEXT,
+        is_absence INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL
       )
     ''');
@@ -226,9 +221,6 @@ class AppDatabase {
     );
   }
 
-  /// Одна-единственная схема. Раньше тут стояли два CREATE подряд, и
-  /// из-за IF NOT EXISTS выигрывал первый — без attachments_json, отчего
-  /// вставка ДЗ падала на «no column named attachments_json».
   Future<void> _createHomeworksTable(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS $tableHomeworks (
@@ -282,9 +274,40 @@ class AppDatabase {
     );
   }
 
-  /// Точечная чистка одной таблицы. Не сбрасывает схему, просто DELETE.
-  /// Используется девелоперским сбросом: «с Porcelain только расписание,
-  /// кэш оценок оставь».
+  Future<void> _createScheduleOverridesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableScheduleOverrides (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        year_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        primary_lesson_id INTEGER NOT NULL,
+        secondary_lesson_id INTEGER,
+        payload TEXT,
+        created_at TEXT NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_schedule_overrides_date '
+          'ON $tableScheduleOverrides(year_id, date)',
+    );
+  }
+
+  Future<void> _createBellsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $tableBells (
+        id INTEGER NOT NULL,
+        year_id INTEGER NOT NULL,
+        payload_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (id, year_id)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_bells_year ON $tableBells(year_id)',
+    );
+  }
+
   Future<void> clearTable(String table) async {
     final db = await database;
     await db.delete(table);
@@ -298,5 +321,7 @@ class AppDatabase {
     await db.delete(tableMarks);
     await db.delete(tableHomeworks);
     await db.delete(tableTeachers);
+    await db.delete(tableScheduleOverrides);
+    await db.delete(tableBells);
   }
 }

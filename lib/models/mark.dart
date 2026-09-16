@@ -11,10 +11,12 @@ class Mark {
   final int? teacherId;
 
   /// Тип работы (контрольная, домашняя, ...) — если API его отдаёт.
-  /// Имена полей в ответе ЭПОСа мы точно не знаем, поэтому пробуем
-  /// несколько вероятных ключей. Если ничего не найдётся — null,
-  /// шторка оценки просто не покажет вторую строку.
   final String? workType;
+
+  /// «Отсутствовал» — сервер ставит name = "шкала оценивания X" вместо
+  /// цифры. Это не оценка в обычном смысле, но приходит тем же эндпоинтом.
+  /// value в этом случае = 0, и в UI это рисуется как бейдж «Н».
+  final bool isAbsence;
 
   const Mark({
     required this.id,
@@ -26,19 +28,29 @@ class Mark {
     this.groupId,
     this.teacherId,
     this.workType,
+    this.isAbsence = false,
   });
 
-  factory Mark.fromJson(Map<String, dynamic> json) => Mark(
-    id: json['id'] as int? ?? 0,
-    value: _extractValue(json),
-    subjectId: json['subject_id'] as int?,
-    createdAt: parseEposDateTime(json['created_at']),
-    date: parseEposDate(json['date']),
-    scheduleLessonId: json['schedule_lesson_id'] as int?,
-    groupId: json['group_id'] as int?,
-    teacherId: json['teacher_id'] as int?,
-    workType: _extractWorkType(json),
-  );
+  factory Mark.fromJson(Map<String, dynamic> json) {
+    final rawName = json['name'];
+    final nameStr = rawName is String ? rawName.trim() : '';
+    final absence =
+        nameStr.isNotEmpty && int.tryParse(nameStr) == null;
+
+    return Mark(
+      id: json['id'] as int? ?? 0,
+      value: _extractValue(json),
+      subjectId: json['subject_id'] as int?,
+      createdAt: parseEposDateTime(json['created_at']),
+      date: parseEposDate(json['date']),
+      scheduleLessonId: json['schedule_lesson_id'] as int?,
+      groupId: json['group_id'] as int?,
+      teacherId: json['teacher_id'] as int?,
+      workType: _extractWorkType(json),
+      isAbsence: absence,
+    );
+  }
+
   static String? _extractWorkType(Map<String, dynamic> json) {
     final candidates = <Object?>[
       json['control_form_name'],
@@ -47,7 +59,6 @@ class Mark {
       json['control_form'],
       json['form_name'],
     ];
-    // На всякий случай — вдруг тип работы лежит внутри values[].
     final values = json['values'];
     if (values is List) {
       for (final v in values.whereType<Map<String, dynamic>>()) {
