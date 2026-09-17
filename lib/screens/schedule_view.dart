@@ -5,9 +5,11 @@ import 'package:flutter/material.dart';
 import '../core/schedule/gap_utils.dart';
 import '../core/settings/schedule_prefs.dart';
 import '../core/util/labels.dart';
+import '../models/attendance.dart';
 import '../models/bells_timetable.dart';
 import '../models/day_schedule.dart';
 import '../models/lesson.dart';
+import '../models/lesson_attendance.dart';
 import '../models/lesson_grades.dart';
 import '../models/mark.dart';
 import '../models/schedule_override.dart';
@@ -21,6 +23,7 @@ class ScheduleView extends StatefulWidget {
   final List<DaySchedule>? schedule;
   final List<Mark>? marks;
   final List<SubjectGrade>? grades;
+  final List<Attendance>? attendances;
   final BellsTimetable? bells;
 
   final bool isLoading;
@@ -34,9 +37,10 @@ class ScheduleView extends StatefulWidget {
 
   /// Пакетный перенос уроков в конкретные времена (drop на окно).
   final Future<List<int>> Function(
-      DateTime date,
-      List<({int lessonId, String startTime, String endTime})> moves,
-      )? onMoveLessons;
+    DateTime date,
+    List<({int lessonId, String startTime, String endTime})> moves,
+  )?
+  onMoveLessons;
 
   final Future<void> Function(List<int> ids)? onRevertOverrideIds;
   final Future<void> Function(int id)? onRevertOverride;
@@ -53,16 +57,18 @@ class ScheduleView extends StatefulWidget {
   onMakePair;
 
   final Future<List<int>> Function(
-      DateTime date,
-      List<Lesson> originalOrder,
-      List<Lesson> newOrder,
-      )? onReorderLessons;
+    DateTime date,
+    List<Lesson> originalOrder,
+    List<Lesson> newOrder,
+  )?
+  onReorderLessons;
 
   const ScheduleView({
     super.key,
     required this.schedule,
     this.marks,
     this.grades,
+    this.attendances,
     this.bells,
     required this.isLoading,
     required this.error,
@@ -95,6 +101,7 @@ class _ScheduleViewState extends State<ScheduleView> {
   int? _pinnedIndex;
 
   LessonGradesLookup _gradesLookup = LessonGradesLookup.empty;
+  LessonAttendanceLookup _attendanceLookup = LessonAttendanceLookup.empty;
 
   DateTime? _selectionDay;
   final Set<int> _selectedLessonIds = {};
@@ -114,6 +121,9 @@ class _ScheduleViewState extends State<ScheduleView> {
       schedule: widget.schedule,
       grades: widget.grades,
     );
+    _attendanceLookup = LessonAttendanceLookup.fromAttendances(
+      widget.attendances,
+    );
   }
 
   @override
@@ -128,6 +138,11 @@ class _ScheduleViewState extends State<ScheduleView> {
         grades: widget.grades,
       );
       if (_selectionMode) _pruneSelection();
+    }
+    if (!identical(oldWidget.attendances, widget.attendances)) {
+      _attendanceLookup = LessonAttendanceLookup.fromAttendances(
+        widget.attendances,
+      );
     }
   }
 
@@ -168,8 +183,10 @@ class _ScheduleViewState extends State<ScheduleView> {
       if (!mounted || !_scrollController.hasClients) return;
       final position = _scrollController.position;
       final delta = _autoScrollTargetDir * _maxScrollSpeed;
-      final next = (_scrollController.offset + delta)
-          .clamp(position.minScrollExtent, position.maxScrollExtent);
+      final next = (_scrollController.offset + delta).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
       if (next != _scrollController.offset) {
         _scrollController.jumpTo(next);
       }
@@ -297,11 +314,7 @@ class _ScheduleViewState extends State<ScheduleView> {
     final base = useMerge
         ? mergeLessonPairs(daySchedule.lessons)
         : daySchedule.lessons;
-    return injectGaps(
-      base,
-      bells: widget.bells,
-      weekDayId: day.weekday,
-    );
+    return injectGaps(base, bells: widget.bells, weekDayId: day.weekday);
   }
 
   List<Lesson> _selectedVisibleLessons() {
@@ -385,21 +398,11 @@ class _ScheduleViewState extends State<ScheduleView> {
 
   /// Урок/пара брошены на окно. Предлагаем слоты из bells, которые
   /// целиком попадают в это окно, и пишем move-override.
-  ///
-  /// Логика выбора:
-  ///   - одиночный урок: если слот ровно один — ставим сразу, если
-  ///     больше — диалог с выбором.
-  ///   - пара: ищем пары подряд идущих слотов. Если ни одной — отказ
-  ///     с понятным сообщением. Если одна — ставим сразу, если больше —
-  ///     диалог с выбором пары слотов.
-  ///
-  /// После перестановки окна пересчитываются автоматически: остатки
-  /// разрывов ≤ порога (20 мин по умолчанию) окнами уже не считаются.
   Future<void> _handleDropOnGap(
-      DateTime day,
-      Lesson dragged,
-      Lesson gap,
-      ) async {
+    DateTime day,
+    Lesson dragged,
+    Lesson gap,
+  ) async {
     final bells = widget.bells;
     final moveCb = widget.onMoveLessons;
     if (bells == null || moveCb == null) {
@@ -420,7 +423,6 @@ class _ScheduleViewState extends State<ScheduleView> {
 
     // ── Пара ─────────────────────────────────────────────────────────────
     if (dragged.isPaired && ids.length >= 2) {
-      // Ищем пары подряд идущих слотов.
       final pairs = <({Bell a, Bell b})>[];
       for (var i = 0; i + 1 < slots.length; i++) {
         final a = slots[i];
@@ -434,14 +436,15 @@ class _ScheduleViewState extends State<ScheduleView> {
 
       if (pairs.isEmpty) {
         if (slots.isEmpty) {
-          _showSnack(
-              'Паре нужно два урока подряд — в этом окне нет слотов');
+          _showSnack('Паре нужно два урока подряд — в этом окне нет слотов');
         } else if (slots.length == 1) {
           _showSnack(
-              'Паре нужно два урока подряд — в этом окне только один слот');
+            'Паре нужно два урока подряд — в этом окне только один слот',
+          );
         } else {
           _showSnack(
-              'Паре нужно два подряд идущих слота — в этом окне таких нет');
+            'Паре нужно два подряд идущих слота — в этом окне таких нет',
+          );
         }
         return;
       }
@@ -456,14 +459,14 @@ class _ScheduleViewState extends State<ScheduleView> {
 
       final moves = <({int lessonId, String startTime, String endTime})>[
         (
-        lessonId: ids[0],
-        startTime: chosen.a.beginTime,
-        endTime: chosen.a.endTime,
+          lessonId: ids[0],
+          startTime: chosen.a.beginTime,
+          endTime: chosen.a.endTime,
         ),
         (
-        lessonId: ids[1],
-        startTime: chosen.b.beginTime,
-        endTime: chosen.b.endTime,
+          lessonId: ids[1],
+          startTime: chosen.b.beginTime,
+          endTime: chosen.b.endTime,
         ),
       ];
 
@@ -491,11 +494,7 @@ class _ScheduleViewState extends State<ScheduleView> {
     if (chosen == null || !mounted) return;
 
     final moves = <({int lessonId, String startTime, String endTime})>[
-      (
-      lessonId: ids[0],
-      startTime: chosen.beginTime,
-      endTime: chosen.endTime,
-      ),
+      (lessonId: ids[0], startTime: chosen.beginTime, endTime: chosen.endTime),
     ];
 
     _exitSelection();
@@ -526,7 +525,7 @@ class _ScheduleViewState extends State<ScheduleView> {
                   const SizedBox(width: 12),
                   Text(
                     '${slot.beginTime} – ${slot.endTime}'
-                        '${slot.studyOrdinal != null ? " · урок ${slot.studyOrdinal}" : ""}',
+                    '${slot.studyOrdinal != null ? " · урок ${slot.studyOrdinal}" : ""}',
                     style: theme.textTheme.bodyLarge,
                   ),
                 ],
@@ -549,9 +548,9 @@ class _ScheduleViewState extends State<ScheduleView> {
   }
 
   Future<({Bell a, Bell b})?> _showSlotPairDialog(
-      Lesson lesson,
-      List<({Bell a, Bell b})> pairs,
-      ) {
+    Lesson lesson,
+    List<({Bell a, Bell b})> pairs,
+  ) {
     final theme = Theme.of(context);
     return showDialog<({Bell a, Bell b})>(
       context: context,
@@ -641,7 +640,7 @@ class _ScheduleViewState extends State<ScheduleView> {
             const SizedBox(height: 12),
             Text(
               'Пара распадётся на два отдельных урока. Правку можно '
-                  'откатить.',
+              'откатить.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -702,7 +701,7 @@ class _ScheduleViewState extends State<ScheduleView> {
             const SizedBox(height: 12),
             Text(
               'Уроки будут показаны одной карточкой как пара. Правку '
-                  'можно откатить.',
+              'можно откатить.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -762,7 +761,7 @@ class _ScheduleViewState extends State<ScheduleView> {
             children: [
               Text(
                 'Уроки исчезнут из расписания на этот день. Данные '
-                    'с сервера не тронутся — правку можно откатить.',
+                'с сервера не тронутся — правку можно откатить.',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -817,10 +816,10 @@ class _ScheduleViewState extends State<ScheduleView> {
   // ── Перестановка ───────────────────────────────────────────────────────
 
   Future<void> _handleReorder(
-      DateTime dayDate,
-      List<Lesson> originalOrder,
-      List<Lesson> newOrder,
-      ) async {
+    DateTime dayDate,
+    List<Lesson> originalOrder,
+    List<Lesson> newOrder,
+  ) async {
     _stopAutoScroll();
 
     final callback = widget.onReorderLessons;
@@ -849,13 +848,13 @@ class _ScheduleViewState extends State<ScheduleView> {
         action: revert == null
             ? null
             : SnackBarAction(
-          label: 'Отменить',
-          textColor: theme.colorScheme.inversePrimary,
-          onPressed: () {
-            messenger.hideCurrentSnackBar();
-            revert(overrideIds);
-          },
-        ),
+                label: 'Отменить',
+                textColor: theme.colorScheme.inversePrimary,
+                onPressed: () {
+                  messenger.hideCurrentSnackBar();
+                  revert(overrideIds);
+                },
+              ),
       ),
     );
     Future.delayed(const Duration(milliseconds: 4500), () {
@@ -1065,21 +1064,20 @@ class _ScheduleViewState extends State<ScheduleView> {
                                     child: DayScheduleCard(
                                       day: schedule[i],
                                       grades: _gradesLookup,
+                                      attendances: _attendanceLookup,
                                       bells: widget.bells,
                                       isSelectionMode: _selectionMode,
                                       selectedLessonIds: _selectedLessonIds,
-                                      changedLessonIds:
-                                      widget.changedLessonIds,
+                                      changedLessonIds: widget.changedLessonIds,
                                       onLessonTap: _selectionMode
-                                          ? (l) =>
-                                          _toggle(schedule[i].date, l)
+                                          ? (l) => _toggle(schedule[i].date, l)
                                           : null,
                                       onLessonLongPress: _selectionMode
                                           ? null
                                           : (l) => _enterSelection(
-                                        schedule[i].date,
-                                        l,
-                                      ),
+                                              schedule[i].date,
+                                              l,
+                                            ),
                                       onLessonsReordered: (orig, next) =>
                                           _handleReorder(
                                             schedule[i].date,
@@ -1268,8 +1266,8 @@ class _DayStrip extends StatelessWidget {
 
   static String _iso(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -1299,8 +1297,8 @@ class _DayStrip extends StatelessWidget {
               color: selected
                   ? theme.colorScheme.onSecondaryContainer
                   : (hasLessons
-                  ? theme.colorScheme.onSurface
-                  : theme.colorScheme.onSurfaceVariant),
+                        ? theme.colorScheme.onSurface
+                        : theme.colorScheme.onSurfaceVariant),
             ),
             selectedColor: theme.colorScheme.secondaryContainer,
             backgroundColor: theme.colorScheme.surface,

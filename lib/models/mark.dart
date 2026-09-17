@@ -13,9 +13,12 @@ class Mark {
   /// Тип работы (контрольная, домашняя, ...) — если API его отдаёт.
   final String? workType;
 
-  /// «Отсутствовал» — сервер ставит name = "шкала оценивания X" вместо
-  /// цифры. Это не оценка в обычном смысле, но приходит тем же эндпоинтом.
-  /// value в этом случае = 0, и в UI это рисуется как бейдж «Н».
+  /// Устаревшее поле. Раньше предполагалось, что marks может отдавать «Н»
+  /// как нечисловой name; на практике name всегда осмысленный («5»,
+  /// «Зачёт»), а реальные отсутствия приходят из
+  /// /core/api/student_profiles (attendances[]). Поле оставлено для
+  /// совместимости с MarksDao (миграция v14 добавила колонку is_absence),
+  /// всегда false.
   final bool isAbsence;
 
   const Mark({
@@ -32,11 +35,6 @@ class Mark {
   });
 
   factory Mark.fromJson(Map<String, dynamic> json) {
-    final rawName = json['name'];
-    final nameStr = rawName is String ? rawName.trim() : '';
-    final absence =
-        nameStr.isNotEmpty && int.tryParse(nameStr) == null;
-
     return Mark(
       id: json['id'] as int? ?? 0,
       value: _extractValue(json),
@@ -47,7 +45,7 @@ class Mark {
       groupId: json['group_id'] as int?,
       teacherId: json['teacher_id'] as int?,
       workType: _extractWorkType(json),
-      isAbsence: absence,
+      isAbsence: false,
     );
   }
 

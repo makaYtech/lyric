@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../../models/attendance.dart';
 import '../../models/lesson.dart';
 import '../../models/lesson_grades.dart';
+import '../common/absence_dot.dart';
 import '../common/grade_dot.dart';
 import 'lesson_details_sheet.dart';
 
 class LessonCard extends StatelessWidget {
   final Lesson lesson;
   final List<LessonGrade> grades;
+  final Attendance? attendance;
 
   final bool isSelectionMode;
   final Set<int> selectedLessonIds;
@@ -29,6 +32,7 @@ class LessonCard extends StatelessWidget {
     super.key,
     required this.lesson,
     this.grades = const [],
+    this.attendance,
     this.isSelectionMode = false,
     this.selectedLessonIds = const {},
     this.onTap,
@@ -62,6 +66,8 @@ class LessonCard extends StatelessWidget {
         expand: false,
         builder: (context, scrollController) => LessonDetailsSheet(
           lesson: lesson,
+          grades: grades,
+          attendance: attendance,
           scrollController: scrollController,
         ),
       ),
@@ -116,8 +122,10 @@ class LessonCard extends StatelessWidget {
               if (lesson.isPaired) ...[
                 const SizedBox(width: 6),
                 Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.secondaryContainer,
                     borderRadius: BorderRadius.circular(6),
@@ -135,10 +143,34 @@ class LessonCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 4),
-          Text(
-            lesson.subject,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
+          // Предмет + «Н» в правом верхнем углу карточки.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  lesson.subject,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (attendance != null) ...[
+                const SizedBox(width: 8),
+                AbsenceDot(
+                  excused: attendance!.isExcused,
+                  size: 24,
+                  onTap: () => showAbsenceDetails(
+                    context,
+                    attendance: attendance!,
+                    subject: lesson.subject,
+                    teacher: lesson.teacher,
+                  ),
+                ),
+              ],
+            ],
           ),
           const SizedBox(height: 6),
           Row(
@@ -198,10 +230,10 @@ class LessonCard extends StatelessWidget {
       child: disableInkWell
           ? inner
           : InkWell(
-        onTap: onTap ?? () => _openDetails(context),
-        onLongPress: onLongPress,
-        child: inner,
-      ),
+              onTap: onTap ?? () => _openDetails(context),
+              onLongPress: onLongPress,
+              child: inner,
+            ),
     );
 
     final double opacity;

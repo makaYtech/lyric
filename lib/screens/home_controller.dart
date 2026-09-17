@@ -9,6 +9,7 @@ import '../core/settings/homework_prefs.dart';
 import '../core/settings/schedule_prefs.dart';
 import '../core/settings/teacher_prefs.dart';
 import '../models/academic_year.dart';
+import '../models/attendance.dart';
 import '../models/bells_timetable.dart';
 import '../models/day_schedule.dart';
 import '../models/homework.dart';
@@ -19,6 +20,7 @@ import '../models/student_profile.dart';
 import '../models/subject_grade.dart';
 import '../models/teacher.dart';
 import '../repositories/academic_years_repository.dart';
+import '../repositories/attendance_repository.dart';
 import '../repositories/bells_repository.dart';
 import '../repositories/grades_repository.dart';
 import '../repositories/homework_repository.dart';
@@ -44,19 +46,21 @@ class HomeController extends ChangeNotifier {
     HomeworkRepository? homeworkRepository,
     TeachersRepository? teachersRepository,
     BellsRepository? bellsRepository,
+    AttendanceRepository? attendanceRepository,
     CacheService? cache,
-  })  : _session = session,
-        _onError = onError,
-        _profileRepository = profileRepository ?? ProfileRepository(),
-        _gradesRepository = gradesRepository ?? GradesRepository(),
-        _yearsRepository = yearsRepository ?? AcademicYearsRepository(),
-        _scheduleRepository = scheduleRepository ?? ScheduleRepository(),
-        _groupsRepository = groupsRepository ?? StudentGroupsRepository(),
-        _marksRepository = marksRepository ?? MarksRepository(),
-        _homeworkRepository = homeworkRepository ?? HomeworkRepository(),
-        _teachersRepository = teachersRepository ?? TeachersRepository(),
-        _bellsRepository = bellsRepository ?? BellsRepository(),
-        _cache = cache ?? CacheService() {
+  }) : _session = session,
+       _onError = onError,
+       _profileRepository = profileRepository ?? ProfileRepository(),
+       _gradesRepository = gradesRepository ?? GradesRepository(),
+       _yearsRepository = yearsRepository ?? AcademicYearsRepository(),
+       _scheduleRepository = scheduleRepository ?? ScheduleRepository(),
+       _groupsRepository = groupsRepository ?? StudentGroupsRepository(),
+       _marksRepository = marksRepository ?? MarksRepository(),
+       _homeworkRepository = homeworkRepository ?? HomeworkRepository(),
+       _teachersRepository = teachersRepository ?? TeachersRepository(),
+       _bellsRepository = bellsRepository ?? BellsRepository(),
+       _attendanceRepository = attendanceRepository ?? AttendanceRepository(),
+       _cache = cache ?? CacheService() {
     _weekStart = _currentMonday();
   }
 
@@ -75,6 +79,7 @@ class HomeController extends ChangeNotifier {
   final HomeworkRepository _homeworkRepository;
   final TeachersRepository _teachersRepository;
   final BellsRepository _bellsRepository;
+  final AttendanceRepository _attendanceRepository;
   final CacheService _cache;
 
   static const _selectedYearKey = 'selected_academic_year_id';
@@ -152,6 +157,9 @@ class HomeController extends ChangeNotifier {
   List<Mark>? _marks;
   List<Mark>? get marks => _marks;
 
+  List<Attendance>? _attendances;
+  List<Attendance>? get attendances => _attendances;
+
   List<Homework>? _homeworks;
   List<Homework>? get homeworks => _homeworks;
   DateTime? _homeworksUpdated;
@@ -178,10 +186,10 @@ class HomeController extends ChangeNotifier {
 
   bool get anyLoading =>
       _profileLoading ||
-          _gradesLoading ||
-          _scheduleLoading ||
-          _homeworksLoading ||
-          _teachersLoading;
+      _gradesLoading ||
+      _scheduleLoading ||
+      _homeworksLoading ||
+      _teachersLoading;
 
   String? get profileErrorForView => _profile == null ? _profileError : null;
   String? get gradesErrorForView =>
@@ -260,8 +268,8 @@ class HomeController extends ChangeNotifier {
       }
 
       final updated = await _bellsRepository.lastUpdated(_selectedYearId);
-      final stale = updated == null ||
-          DateTime.now().difference(updated).inHours > 24;
+      final stale =
+          updated == null || DateTime.now().difference(updated).inHours > 24;
       if (cached != null && !stale) return;
 
       final fresh = await _bellsRepository.refresh(
@@ -305,15 +313,14 @@ class HomeController extends ChangeNotifier {
           .toSet();
     }
 
-    final yearId =
-        savedYearId ?? _currentYearIdFrom(years) ?? _fallbackYearId;
+    final yearId = savedYearId ?? _currentYearIdFrom(years) ?? _fallbackYearId;
 
     final gradesFut = _gradesRepository.loadCached(yearId);
     final gradesUpdFut = _gradesRepository.lastUpdated(yearId);
     final scheduleFut = _scheduleRepository.loadCached(_weekStart, yearId);
-    final scheduleUpdFut =
-    _scheduleRepository.lastUpdated(_weekStart, yearId);
+    final scheduleUpdFut = _scheduleRepository.lastUpdated(_weekStart, yearId);
     final marksFut = _marksRepository.loadCached(yearId, _weekStart);
+    final attendancesFut = _attendanceRepository.loadCached(yearId);
     final homeworksFut = _homeworkRepository.loadCached(yearId);
     final homeworksUpdFut = _homeworkRepository.lastUpdated(yearId);
     final teachersFut = _teachersRepository.loadCached(yearId);
@@ -324,6 +331,7 @@ class HomeController extends ChangeNotifier {
     final schedule = await scheduleFut;
     final scheduleUpdated = await scheduleUpdFut;
     final marks = await marksFut;
+    final attendances = await attendancesFut;
     final homeworks = await homeworksFut;
     final homeworksUpdated = await homeworksUpdFut;
     final teachers = await teachersFut;
@@ -340,6 +348,7 @@ class HomeController extends ChangeNotifier {
     _schedule = schedule;
     _scheduleUpdated = scheduleUpdated;
     _marks = marks.isEmpty ? null : marks;
+    _attendances = attendances.isEmpty ? null : attendances;
     _homeworks = homeworks;
     _homeworksUpdated = homeworksUpdated;
     _teachers = teachers;
@@ -413,6 +422,7 @@ class HomeController extends ChangeNotifier {
       refreshSchedule(),
       refreshHomeworks(),
       _refreshTeachers(),
+      refreshAttendances(),
     ]);
   }
 
@@ -436,12 +446,8 @@ class HomeController extends ChangeNotifier {
     profileTick.value++;
     _notify();
     try {
-      final list = await _teachersRepository.refresh(
-        tokens,
-        _selectedYearId,
-      );
-      final updated =
-      await _teachersRepository.lastUpdated(_selectedYearId);
+      final list = await _teachersRepository.refresh(tokens, _selectedYearId);
+      final updated = await _teachersRepository.lastUpdated(_selectedYearId);
       if (_disposed) return;
       _teachers = list;
       _teachersUpdated = updated;
@@ -484,12 +490,8 @@ class HomeController extends ChangeNotifier {
     setError: (e) => _gradesError = e,
     revision: gradesTick,
     body: () async {
-      final grades = await _gradesRepository.refresh(
-        tokens,
-        _selectedYearId,
-      );
-      final updated =
-      await _gradesRepository.lastUpdated(_selectedYearId);
+      final grades = await _gradesRepository.refresh(tokens, _selectedYearId);
+      final updated = await _gradesRepository.lastUpdated(_selectedYearId);
       if (_disposed) return;
       _grades = grades;
       _gradesUpdated = updated;
@@ -497,6 +499,23 @@ class HomeController extends ChangeNotifier {
     errorToast: 'Не удалось обновить оценки',
     silent: silent,
   );
+
+  /// Отсутствия обновляем только в refreshAll: ручка отдаёт весь год
+  /// разом, а данные меняются редко. При смене недели не дёргаем —
+  /// берём из кэша. При смене года — refresh ниже.
+  Future<void> refreshAttendances({bool silent = false}) async {
+    try {
+      final list = await _attendanceRepository.refresh(tokens, _selectedYearId);
+      if (_disposed) return;
+      _attendances = list.isEmpty ? null : list;
+      scheduleTick.value++;
+      _notify();
+    } on SessionExpiredException {
+      SessionNotifier.instance.markExpired();
+    } catch (e) {
+      if (!silent) debugPrint('attendances не загрузились: $e');
+    }
+  }
 
   Future<void> _ensureGroups() async {
     if (_groupIds.isNotEmpty) return;
@@ -523,12 +542,7 @@ class HomeController extends ChangeNotifier {
       final sunday = monday.add(const Duration(days: 6));
 
       final results = await Future.wait<Object>([
-        _scheduleRepository.refresh(
-          tokens,
-          monday,
-          _selectedYearId,
-          _groupIds,
-        ),
+        _scheduleRepository.refresh(tokens, monday, _selectedYearId, _groupIds),
         _marksRepository.refresh(
           tokens,
           _selectedYearId,
@@ -553,10 +567,7 @@ class HomeController extends ChangeNotifier {
       }
       if (newIds.length != _studentTeacherIds.length) {
         _studentTeacherIds = newIds;
-        await _cache.saveString(
-          _studentTeacherIdsKey,
-          newIds.join(','),
-        );
+        await _cache.saveString(_studentTeacherIdsKey, newIds.join(','));
       }
 
       if (_disposed) return;
@@ -581,8 +592,7 @@ class HomeController extends ChangeNotifier {
         from: range.$1,
         to: range.$2,
       );
-      final updated =
-      await _homeworkRepository.lastUpdated(_selectedYearId);
+      final updated = await _homeworkRepository.lastUpdated(_selectedYearId);
       if (_disposed) return;
       _homeworks = homeworks;
       _homeworksUpdated = updated;
@@ -600,8 +610,8 @@ class HomeController extends ChangeNotifier {
 
   static String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 
   Set<int> _changedIdsFrom(List<ScheduleOverride> overrides) {
     final out = <int>{};
@@ -639,10 +649,14 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> _reloadScheduleFromCache() async {
-    final cached =
-    await _scheduleRepository.loadCached(_weekStart, _selectedYearId);
-    final updated =
-    await _scheduleRepository.lastUpdated(_weekStart, _selectedYearId);
+    final cached = await _scheduleRepository.loadCached(
+      _weekStart,
+      _selectedYearId,
+    );
+    final updated = await _scheduleRepository.lastUpdated(
+      _weekStart,
+      _selectedYearId,
+    );
 
     if (_disposed) return;
     if (cached != null) {
@@ -763,12 +777,18 @@ class HomeController extends ChangeNotifier {
     scheduleTick.value++;
     _notify();
 
-    final cached =
-    await _scheduleRepository.loadCached(newMonday, _selectedYearId);
-    final updated =
-    await _scheduleRepository.lastUpdated(newMonday, _selectedYearId);
-    final cachedMarks =
-    await _marksRepository.loadCached(_selectedYearId, newMonday);
+    final cached = await _scheduleRepository.loadCached(
+      newMonday,
+      _selectedYearId,
+    );
+    final updated = await _scheduleRepository.lastUpdated(
+      newMonday,
+      _selectedYearId,
+    );
+    final cachedMarks = await _marksRepository.loadCached(
+      _selectedYearId,
+      newMonday,
+    );
     if (_disposed) return;
     _schedule = cached;
     _scheduleUpdated = updated;
@@ -790,9 +810,11 @@ class HomeController extends ChangeNotifier {
     _homeworksUpdated = null;
     _teachers = null;
     _teachersUpdated = null;
+    _attendances = null;
     gradesTick.value++;
     homeworksTick.value++;
     profileTick.value++;
+    scheduleTick.value++;
     _notify();
 
     await _cache.saveInt(_selectedYearKey, yearId);
@@ -803,6 +825,7 @@ class HomeController extends ChangeNotifier {
     final updatedHw = await _homeworkRepository.lastUpdated(yearId);
     final cachedTeachers = await _teachersRepository.loadCached(yearId);
     final updatedTeachers = await _teachersRepository.lastUpdated(yearId);
+    final cachedAtt = await _attendanceRepository.loadCached(yearId);
     if (_disposed) return;
     _grades = cachedGrades;
     _gradesUpdated = updatedGrades;
@@ -810,15 +833,18 @@ class HomeController extends ChangeNotifier {
     _homeworksUpdated = updatedHw;
     _teachers = cachedTeachers;
     _teachersUpdated = updatedTeachers;
+    _attendances = cachedAtt.isEmpty ? null : cachedAtt;
     gradesTick.value++;
     homeworksTick.value++;
     profileTick.value++;
+    scheduleTick.value++;
     _notify();
 
     await _loadBells();
     await refreshGrades(silent: true);
     await refreshHomeworks(silent: true);
     await _refreshTeachers();
+    await refreshAttendances(silent: true);
   }
 
   static DateTime _currentMonday() {

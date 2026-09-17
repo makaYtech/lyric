@@ -7,15 +7,6 @@ import 'login_screen.dart';
 
 /// Экран «Для разработчика». Попасть сюда можно только через
 /// SettingsScreen → «Для разработчика» → предупреждение → OK.
-///
-/// Здесь нет никаких правил UX: кнопки могут убить сессию, стереть кэш,
-/// сменить текущее состояние. Единственное, что мы делаем для
-/// безопасности — подтверждения на опасных действиях и snackbar с
-/// результатом.
-///
-/// ВАЖНО: токены и ключи тут НИКОГДА не показываются целиком или
-/// по частям. Только факт наличия и длина. Префикс — это тоже часть
-/// секрета, и он точно так же утекает через скриншоты и issue-трекеры.
 class DeveloperScreen extends StatefulWidget {
   final ThemeController themeController;
 
@@ -50,14 +41,11 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     );
   }
 
-  /// Обёртка: запускает действие, блокирует кнопки, показывает результат.
-  /// [successMessage] — что сказать при успехе; [afterAction] — что
-  /// сделать после (например, редирект на LoginScreen для полного сброса).
   Future<void> _run(
-      Future<void> Function() action, {
-        required String successMessage,
-        Future<void> Function()? afterAction,
-      }) async {
+    Future<void> Function() action, {
+    required String successMessage,
+    Future<void> Function()? afterAction,
+  }) async {
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -112,20 +100,12 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
       MaterialPageRoute(
         builder: (_) => LoginScreen(themeController: widget.themeController),
       ),
-          (route) => false,
+      (route) => false,
     );
   }
 
   // ── Обработчики ────────────────────────────────────────────────────────
 
-  /// Переключение flow. Сбрасываем текущую сессию, потому что:
-  ///   - иначе пользователь не увидит эффекта (сессия продолжит жить
-  ///     тем flow, которым была получена);
-  ///   - при смене flow логично начать с чистого листа — вдруг на
-  ///     другом flow refresh-логика несовместима с тем, что лежит в БД.
-  ///
-  /// Флаг сохраняется в prefs и применяется на следующем логине.
-  /// Кэш и device_key не трогаем — они не привязаны к flow.
   Future<void> _toggleAuthFlow(bool useDevice) async {
     final current = AuthConfig.useDeviceTokenFlow.value;
     if (current == useDevice) return;
@@ -134,11 +114,11 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
       title: 'Сменить flow авторизации?',
       body: useDevice
           ? 'Включить device-token flow (новый). Текущая сессия будет '
-          'сброшена — потребуется войти заново. Кэш и device_key '
-          'останутся на месте.'
+                'сброшена — потребуется войти заново. Кэш и device_key '
+                'останутся на месте.'
           : 'Включить legacy OAuth flow (PKCE + refresh_token + Phase C). '
-          'Текущая сессия будет сброшена — потребуется войти заново. '
-          'Используй, если новый flow не работает на стороне сервера.',
+                'Текущая сессия будет сброшена — потребуется войти заново. '
+                'Используй, если новый flow не работает на стороне сервера.',
       confirmLabel: 'Сменить и выйти',
     );
     if (!ok) return;
@@ -152,21 +132,20 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   Future<void> _clearDeviceToken() async {
     final ok = await _confirm(
       title: 'Сбросить device_token?',
-      body: 'auth_token останется живым, но при первом 401 обновить '
+      body:
+          'auth_token останется живым, но при первом 401 обновить '
           'сессию уже не получится — упрёмся в ReauthSheet. Это и есть '
           'проверка граничного случая.',
     );
     if (!ok) return;
-    await _run(
-      _tools.clearDeviceToken,
-      successMessage: 'device_token сброшен',
-    );
+    await _run(_tools.clearDeviceToken, successMessage: 'device_token сброшен');
   }
 
   Future<void> _poisonAuthToken() async {
     final ok = await _confirm(
       title: 'Отравить auth_token?',
-      body: 'Следующий запрос к API получит 401. Если новый flow '
+      body:
+          'Следующий запрос к API получит 401. Если новый flow '
           'действительно самовосстанавливающийся — оно тут же поменяет '
           'auth_token на свежий. Если нет — покажет ReauthSheet.',
       confirmLabel: 'Отравить',
@@ -181,15 +160,13 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   Future<void> _clearOauthPair() async {
     final ok = await _confirm(
       title: 'Сбросить OAuth-пару?',
-      body: 'access_token, refresh_token и время истечения будут удалены. '
+      body:
+          'access_token, refresh_token и время истечения будут удалены. '
           'Для device-token-сессии это безвредно, для legacy — сломает '
           'refresh.',
     );
     if (!ok) return;
-    await _run(
-      _tools.clearOauthPair,
-      successMessage: 'OAuth-пара сброшена',
-    );
+    await _run(_tools.clearOauthPair, successMessage: 'OAuth-пара сброшена');
   }
 
   Future<void> _clearLongToken() async {
@@ -198,16 +175,14 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
       body: 'long_token удаляется, остальные поля сессии остаются.',
     );
     if (!ok) return;
-    await _run(
-      _tools.clearLongToken,
-      successMessage: 'long_token сброшен',
-    );
+    await _run(_tools.clearLongToken, successMessage: 'long_token сброшен');
   }
 
   Future<void> _clearWholeEposSession() async {
     final ok = await _confirm(
       title: 'Сбросить всю сессию ЭПОС?',
-      body: 'Полное удаление сессии. Приложение попадёт на LoginScreen '
+      body:
+          'Полное удаление сессии. Приложение попадёт на LoginScreen '
           'при следующем перезапуске. Сейчас не редиректим — можно '
           'посмотреть, как отреагирует HomeScreen.',
     );
@@ -221,20 +196,19 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   Future<void> _resetDeviceKey() async {
     final ok = await _confirm(
       title: 'Сбросить device_key?',
-      body: 'Следующий интерактивный вход сгенерирует новый ключ. '
+      body:
+          'Следующий интерактивный вход сгенерирует новый ключ. '
           'Старый на сервере останется — сам по себе он бесполезен.',
     );
     if (!ok) return;
-    await _run(
-      _tools.resetDeviceKey,
-      successMessage: 'device_key сброшен',
-    );
+    await _run(_tools.resetDeviceKey, successMessage: 'device_key сброшен');
   }
 
   Future<void> _clearMySchool() async {
     final ok = await _confirm(
       title: 'Сбросить токены «Моей школы»?',
-      body: 'Если сейчас активен бэкенд «Моя школа», потребуется '
+      body:
+          'Если сейчас активен бэкенд «Моя школа», потребуется '
           'войти заново. Для ЭПОС-режима — просто очистка мусора.',
     );
     if (!ok) return;
@@ -245,10 +219,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   }
 
   Future<void> _clearProfileCache() async {
-    await _run(
-      _tools.clearProfileCache,
-      successMessage: 'Кэш профиля сброшен',
-    );
+    await _run(_tools.clearProfileCache, successMessage: 'Кэш профиля сброшен');
   }
 
   Future<void> _clearYearsCache() async {
@@ -268,14 +239,12 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   Future<void> _clearAvatars() async {
     final ok = await _confirm(
       title: 'Сбросить аватарки?',
-      body: 'Все локальные аватарки вернутся к инициалам. Файлы на '
+      body:
+          'Все локальные аватарки вернутся к инициалам. Файлы на '
           'устройстве не тронем — только ссылки в приложении.',
     );
     if (!ok) return;
-    await _run(
-      _tools.clearAvatarCache,
-      successMessage: 'Аватарки сброшены',
-    );
+    await _run(_tools.clearAvatarCache, successMessage: 'Аватарки сброшены');
   }
 
   Future<void> _resetDisplayPrefs() async {
@@ -288,7 +257,8 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   Future<void> _clearAllSharedPrefs() async {
     final ok = await _confirm(
       title: 'Снести все SharedPreferences?',
-      body: 'Кроме темы. Сюда попадают профиль, годы, группы, аватарки '
+      body:
+          'Кроме темы. Сюда попадают профиль, годы, группы, аватарки '
           'и все настройки. Кэш SQLite не тронем.',
     );
     if (!ok) return;
@@ -299,10 +269,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   }
 
   Future<void> _clearLessons() async {
-    await _run(
-      _tools.clearLessons,
-      successMessage: 'Расписание очищено',
-    );
+    await _run(_tools.clearLessons, successMessage: 'Расписание очищено');
   }
 
   Future<void> _clearGrades() async {
@@ -313,37 +280,30 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   }
 
   Future<void> _clearMarks() async {
-    await _run(
-      _tools.clearMarks,
-      successMessage: 'Marks очищены',
-    );
+    await _run(_tools.clearMarks, successMessage: 'Marks очищены');
+  }
+
+  Future<void> _clearAttendances() async {
+    await _run(_tools.clearAttendances, successMessage: 'Отсутствия очищены');
   }
 
   Future<void> _clearHomeworks() async {
-    await _run(
-      _tools.clearHomeworks,
-      successMessage: 'ДЗ очищены',
-    );
+    await _run(_tools.clearHomeworks, successMessage: 'ДЗ очищены');
   }
 
   Future<void> _clearTeachers() async {
-    await _run(
-      _tools.clearTeachers,
-      successMessage: 'Учителя очищены',
-    );
+    await _run(_tools.clearTeachers, successMessage: 'Учителя очищены');
   }
 
   Future<void> _clearWholeDatabase() async {
     final ok = await _confirm(
       title: 'Снести всю SQLite?',
-      body: 'Расписание, оценки, marks, ДЗ, учителя — всё. '
+      body:
+          'Расписание, оценки, marks, ДЗ, учителя — всё. '
           'SharedPreferences останутся.',
     );
     if (!ok) return;
-    await _run(
-      _tools.clearWholeDatabase,
-      successMessage: 'SQLite очищена',
-    );
+    await _run(_tools.clearWholeDatabase, successMessage: 'SQLite очищена');
   }
 
   Future<void> _forceRefresh() async {
@@ -362,7 +322,8 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
   Future<void> _fullWipe() async {
     final ok = await _confirm(
       title: 'Полный сброс?',
-      body: 'Сессия, кэш, SharedPreferences и вся SQLite будут стёрты. '
+      body:
+          'Сессия, кэш, SharedPreferences и вся SQLite будут стёрты. '
           'device_key и тема оформления останутся. Приложение вернётся '
           'на LoginScreen.',
       confirmLabel: 'Снести ВСЁ',
@@ -416,9 +377,9 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                       subtitle: Text(
                         useDevice
                             ? 'Новый: WebView → ESIA → diaryperm:// → '
-                            '/authenticate с заголовком token'
+                                  '/authenticate с заголовком token'
                             : 'Legacy: PKCE + refresh_token + Phase C '
-                            'через скрытый WebView',
+                                  'через скрытый WebView',
                       ),
                       value: useDevice,
                       onChanged: _busy ? null : _toggleAuthFlow,
@@ -429,7 +390,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                     leading: const Icon(Icons.info_outline, size: 18),
                     title: const Text(
                       'Смена flow сбрасывает текущую сессию и возвращает '
-                          'на LoginScreen. Применяется при следующем входе.',
+                      'на LoginScreen. Применяется при следующем входе.',
                       style: TextStyle(fontSize: 12),
                     ),
                   ),
@@ -447,16 +408,14 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                   _ActionTile(
                     icon: Icons.link_off,
                     title: 'Сбросить device_token',
-                    subtitle:
-                    'Ломает авто-восстановление. Проверка граничного случая',
+                    subtitle: 'Ломает авто-восстановление. Проверка граничного случая',
                     enabled: !_busy,
                     onTap: _clearDeviceToken,
                   ),
                   _ActionTile(
                     icon: Icons.warning_amber,
                     title: 'Отравить auth_token',
-                    subtitle:
-                    'Следующий запрос получит 401 — тест самовосстановления',
+                    subtitle: 'Следующий запрос получит 401 — тест самовосстановления',
                     enabled: !_busy,
                     onTap: _poisonAuthToken,
                   ),
@@ -604,6 +563,13 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                     onTap: _clearMarks,
                   ),
                   _ActionTile(
+                    icon: Icons.event_busy_outlined,
+                    title: 'Отсутствия',
+                    subtitle: 'Н-ки на расписании',
+                    enabled: !_busy,
+                    onTap: _clearAttendances,
+                  ),
+                  _ActionTile(
                     icon: Icons.book_outlined,
                     title: 'ДЗ',
                     enabled: !_busy,
@@ -632,8 +598,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                   _ActionTile(
                     icon: Icons.delete_forever,
                     title: 'Полный сброс',
-                    subtitle:
-                    'Сессия + кэш + prefs + SQLite. device_key и тема останутся',
+                    subtitle: 'Сессия + кэш + prefs + SQLite. device_key и тема останутся',
                     enabled: !_busy,
                     onTap: _fullWipe,
                     danger: true,
@@ -680,8 +645,8 @@ class _WarningBanner extends StatelessWidget {
           Expanded(
             child: Text(
               'Какие-либо действия на этом экране могут привести к поломке '
-                  'работоспособности приложения. Настоятельно не '
-                  'рекомендуется трогать без нужды.',
+              'работоспособности приложения. Настоятельно не '
+              'рекомендуется трогать без нужды.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onErrorContainer,
               ),
@@ -775,8 +740,6 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
-/// Строка про device_key. Показываем только факт наличия и длину —
-/// сам ключ не палим никак, даже префиксом.
 class _KeyStatusTile extends StatelessWidget {
   final String? key_;
 
@@ -802,13 +765,6 @@ class _KeyStatusTile extends StatelessWidget {
   }
 }
 
-/// Сводка по EposSession — что есть, чего нет. Токены НИКОГДА не
-/// показываются ни целиком, ни частями: только факт наличия и длина.
-/// Длина безопасна и полезна при отладке (32 симв. у auth_token — норма,
-/// а 5 симв. — уже сигнал, что что-то не так).
-///
-/// profile_id исключение: это не секрет, он уходит в заголовке Profile-Id
-/// каждого запроса и по нему ничего нельзя подделать.
 class _SessionStatusTile extends StatelessWidget {
   final DebugSnapshot? snapshot;
 
@@ -821,10 +777,7 @@ class _SessionStatusTile extends StatelessWidget {
 
     if (s == null) {
       return ListTile(
-        leading: Icon(
-          Icons.error_outline,
-          color: theme.colorScheme.error,
-        ),
+        leading: Icon(Icons.error_outline, color: theme.colorScheme.error),
         title: const Text('Сессия отсутствует'),
         subtitle: const Text('Secure storage пуст'),
       );
@@ -864,9 +817,6 @@ class _SessionStatusTile extends StatelessWidget {
     );
   }
 
-  /// Только факт наличия и длина. Никаких префиксов — префикс токена
-  /// это тоже часть токена, и он точно так же утекает через скриншоты
-  /// и issue-трекеры.
   static String _presence(String? v) {
     if (v == null || v.isEmpty) return '—';
     return 'есть (${v.length} симв.)';

@@ -7,6 +7,7 @@ import '../../core/settings/schedule_prefs.dart';
 import '../../models/bells_timetable.dart';
 import '../../models/day_schedule.dart';
 import '../../models/lesson.dart';
+import '../../models/lesson_attendance.dart';
 import '../../models/lesson_grades.dart';
 import 'gap_card.dart';
 import 'lesson_card.dart';
@@ -15,6 +16,7 @@ class DayScheduleCard extends StatefulWidget {
   final DaySchedule day;
   final bool highlightToday;
   final LessonGradesLookup grades;
+  final LessonAttendanceLookup attendances;
   final BellsTimetable? bells;
 
   final bool isSelectionMode;
@@ -38,6 +40,7 @@ class DayScheduleCard extends StatefulWidget {
     required this.day,
     this.highlightToday = true,
     this.grades = LessonGradesLookup.empty,
+    this.attendances = LessonAttendanceLookup.empty,
     this.bells,
     this.isSelectionMode = false,
     this.selectedLessonIds = const {},
@@ -60,8 +63,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
 
   final _contentKey = GlobalKey();
   final _lessonKeys = <int, GlobalKey>{};
-  GlobalKey _keyFor(int id) =>
-      _lessonKeys.putIfAbsent(id, () => GlobalKey());
+  GlobalKey _keyFor(int id) => _lessonKeys.putIfAbsent(id, () => GlobalKey());
 
   List<Lesson>? _dragOrder;
   int? _dragLessonId;
@@ -135,8 +137,9 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
   }
 
   int _visibleSelectedCountInDay() {
-    final merged =
-    SchedulePrefs.mergePairs.value ? _merged() : widget.day.lessons;
+    final merged = SchedulePrefs.mergePairs.value
+        ? _merged()
+        : widget.day.lessons;
     var count = 0;
     for (final l in merged) {
       final ids = _idsOf(l).toList();
@@ -177,7 +180,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
   void _startDrag(Lesson lesson, Offset globalPos) {
     try {
       final contentBox =
-      _contentKey.currentContext?.findRenderObject() as RenderBox?;
+          _contentKey.currentContext?.findRenderObject() as RenderBox?;
       if (contentBox == null) return;
       final contentTop = contentBox.localToGlobal(Offset.zero).dy;
 
@@ -208,7 +211,10 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
     }
   }
 
-  void _onLongPressMoveUpdate(int lessonId, LongPressMoveUpdateDetails details) {
+  void _onLongPressMoveUpdate(
+    int lessonId,
+    LongPressMoveUpdateDetails details,
+  ) {
     if (!_isDragging) return;
     if (_dragLessonId != lessonId) return;
     final tops = _slotTops;
@@ -216,7 +222,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
     if (tops == null || heights == null) return;
 
     final contentBox =
-    _contentKey.currentContext?.findRenderObject() as RenderBox?;
+        _contentKey.currentContext?.findRenderObject() as RenderBox?;
     if (contentBox == null) return;
     final contentTop = contentBox.localToGlobal(Offset.zero).dy;
 
@@ -268,9 +274,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
 
     // Drop на окно — отдаём наружу, там откроется диалог со слотами.
     // Только для drag'а обычного урока/пары, не окна.
-    if (target.isGap &&
-        !dragged.isGap &&
-        widget.onDropOnGap != null) {
+    if (target.isGap && !dragged.isGap && widget.onDropOnGap != null) {
       _resetDragState();
       widget.onDropOnGap!(dragged, target);
       return;
@@ -362,8 +366,10 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
               if (isToday) ...[
                 const SizedBox(width: 8),
                 Container(
-                  padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: theme.colorScheme.primaryContainer,
                     borderRadius: BorderRadius.circular(6),
@@ -396,11 +402,13 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
                   valueListenable: SchedulePrefs.gapThresholdMinutes,
                   builder: (context, ___, ____) {
                     final lessons = merge ? _merged() : day.lessons;
-                    return _buildContent(injectGaps(
-                      lessons,
-                      bells: widget.bells,
-                      weekDayId: day.date.weekday,
-                    ));
+                    return _buildContent(
+                      injectGaps(
+                        lessons,
+                        bells: widget.bells,
+                        weekDayId: day.date.weekday,
+                      ),
+                    );
                   },
                 ),
               ),
@@ -426,7 +434,8 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
       );
     }
 
-    final displayOrder = _pendingOrder ??
+    final displayOrder =
+        _pendingOrder ??
         ([...lessons]..sort((a, b) => a.startTime.compareTo(b.startTime)));
 
     return Stack(
@@ -484,7 +493,8 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
       longPressCb = null;
     }
 
-    final canDrag = widget.isSelectionMode &&
+    final canDrag =
+        widget.isSelectionMode &&
         _visibleSelectedCountInDay() == 1 &&
         _idsOf(lesson).every(widget.selectedLessonIds.contains) &&
         lesson.id != null;
@@ -494,6 +504,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
     Widget child = LessonCard(
       lesson: lesson,
       grades: widget.grades.forLesson(lesson),
+      attendance: widget.attendances.forLesson(lesson),
       isSelectionMode: widget.isSelectionMode,
       selectedLessonIds: widget.selectedLessonIds,
       onTap: tapCb,
@@ -510,8 +521,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
           if (!_isDragging) widget.onLessonTap?.call(lesson);
         },
         onLongPressStart: (d) => _onLongPressStart(lesson, d),
-        onLongPressMoveUpdate: (d) =>
-            _onLongPressMoveUpdate(lesson.id!, d),
+        onLongPressMoveUpdate: (d) => _onLongPressMoveUpdate(lesson.id!, d),
         onLongPressEnd: (d) => _onLongPressEnd(lesson.id!, d),
         child: child,
       );
@@ -551,11 +561,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
     return 0;
   }
 
-  double _snapTopForDraggedItem(
-      List<Lesson> order,
-      int dragIndex,
-      int target,
-      ) {
+  double _snapTopForDraggedItem(List<Lesson> order, int dragIndex, int target) {
     final heights = _slotHeights;
     if (heights == null) return 0;
     final n = order.length;
@@ -611,6 +617,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
           child: LessonCard(
             lesson: lesson,
             grades: widget.grades.forLesson(lesson),
+            attendance: widget.attendances.forLesson(lesson),
             isSelectionMode: false,
             selectedLessonIds: const {},
             onTap: () {},

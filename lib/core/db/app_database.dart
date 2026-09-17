@@ -9,7 +9,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 14;
+  static const _version = 15;
 
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
@@ -19,6 +19,7 @@ class AppDatabase {
   static const tableTeachers = 'teachers';
   static const tableScheduleOverrides = 'schedule_overrides';
   static const tableBells = 'bells_timetables';
+  static const tableAttendances = 'attendances';
 
   Database? _db;
   Future<Database>? _opening;
@@ -92,28 +93,31 @@ class AppDatabase {
           if (!await _columnExists(db, tableLessons, 'attachments_json')) {
             await db.execute(
               "ALTER TABLE $tableLessons "
-                  "ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
+              "ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
             );
           }
           if (!await _columnExists(db, tableHomeworks, 'attachments_json')) {
             await db.execute(
               "ALTER TABLE $tableHomeworks "
-                  "ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
+              "ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'",
             );
           }
         }
         if (oldVersion < 11) {
           if (!await _columnExists(
-              db, tableLessons, 'student_homework_ids_json')) {
+            db,
+            tableLessons,
+            'student_homework_ids_json',
+          )) {
             await db.execute(
               "ALTER TABLE $tableLessons ADD COLUMN "
-                  "student_homework_ids_json TEXT NOT NULL DEFAULT '[]'",
+              "student_homework_ids_json TEXT NOT NULL DEFAULT '[]'",
             );
           }
           if (!await _columnExists(db, tableHomeworks, 'my_attachments_json')) {
             await db.execute(
               "ALTER TABLE $tableHomeworks ADD COLUMN "
-                  "my_attachments_json TEXT NOT NULL DEFAULT '[]'",
+              "my_attachments_json TEXT NOT NULL DEFAULT '[]'",
             );
           }
         }
@@ -127,9 +131,12 @@ class AppDatabase {
           if (!await _columnExists(db, tableMarks, 'is_absence')) {
             await db.execute(
               'ALTER TABLE $tableMarks '
-                  'ADD COLUMN is_absence INTEGER NOT NULL DEFAULT 0',
+              'ADD COLUMN is_absence INTEGER NOT NULL DEFAULT 0',
             );
           }
+        }
+        if (oldVersion < 15) {
+          await _createAttendancesTable(db);
         }
       },
     );
@@ -197,6 +204,7 @@ class AppDatabase {
     await _createTeachersTable(db);
     await _createScheduleOverridesTable(db);
     await _createBellsTable(db);
+    await _createAttendancesTable(db);
   }
 
   Future<void> _createMarksTable(Database db) async {
@@ -218,6 +226,25 @@ class AppDatabase {
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_marks_week ON $tableMarks(year_id, date)',
+    );
+  }
+
+  Future<void> _createAttendancesTable(Database db) async {
+    await db.execute('''
+    CREATE TABLE IF NOT EXISTS $tableAttendances (
+      id INTEGER PRIMARY KEY,
+      year_id INTEGER NOT NULL,
+      date TEXT,
+      schedule_lesson_id INTEGER,
+      subject_id INTEGER,
+      teacher_id INTEGER,
+      absence_reason_id INTEGER,
+      updated_at TEXT NOT NULL
+    )
+  ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_attendances_year '
+      'ON $tableAttendances(year_id)',
     );
   }
 
@@ -289,7 +316,7 @@ class AppDatabase {
     ''');
     await db.execute(
       'CREATE INDEX IF NOT EXISTS idx_schedule_overrides_date '
-          'ON $tableScheduleOverrides(year_id, date)',
+      'ON $tableScheduleOverrides(year_id, date)',
     );
   }
 
@@ -323,5 +350,6 @@ class AppDatabase {
     await db.delete(tableTeachers);
     await db.delete(tableScheduleOverrides);
     await db.delete(tableBells);
+    await db.delete(tableAttendances);
   }
 }

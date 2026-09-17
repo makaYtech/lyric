@@ -56,8 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _controller.init();
     AttachmentService.instance.setSession(widget.session);
 
-    // Проверка обновлений — один раз за запуск, через небольшую
-    // задержку, чтобы HomeScreen успел отрисоваться.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(milliseconds: 1500), _checkUpdatesOnStart);
     });
@@ -65,8 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _checkUpdatesOnStart() async {
     if (!mounted) return;
-    final check =
-    await UpdateService.instance.check(UpdatePrefs.channel.value);
+    final check = await UpdateService.instance.check(UpdatePrefs.channel.value);
     if (!mounted) return;
     if (check.result != UpdateCheckResult.available) return;
 
@@ -77,11 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
 
     if (!started) {
-      // Пользователь отказался — сообщаем, что кнопка есть в настройках.
-      _showErrorSnack(
-        'Обновиться можно в меню настроек',
-        errorStyle: false,
-      );
+      _showErrorSnack('Обновиться можно в меню настроек', errorStyle: false);
     }
   }
 
@@ -125,15 +118,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
     final session = await Navigator.of(context).push<EposSession>(
       MaterialPageRoute(
-        builder: (_) => useDevice
-            ? const DeviceReauthScreen()
-            : const ReauthScreen(),
+        builder: (_) =>
+            useDevice ? const DeviceReauthScreen() : const ReauthScreen(),
       ),
     );
     if (!mounted) return;
     if (session == null) {
       _showErrorSnack(
-          'Не удалось войти заново. Работаем с сохранёнными данными.');
+        'Не удалось войти заново. Работаем с сохранёнными данными.',
+      );
       return;
     }
     await _controller.updateSession(session);
@@ -173,8 +166,9 @@ class _HomeScreenState extends State<HomeScreen> {
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
           themeController: widget.themeController,
-          studentAvatarKey:
-          AvatarStorage.studentKey(_controller.tokens.profileId),
+          studentAvatarKey: AvatarStorage.studentKey(
+            _controller.tokens.profileId,
+          ),
           teachers: _controller.teachers,
         ),
       ),
@@ -207,8 +201,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   profile: _controller.profile,
                   teachers: _controller.teachers,
                   studentTeacherIds: _controller.studentTeacherIds,
-                  studentAvatarKey:
-                  AvatarStorage.studentKey(_controller.tokens.profileId),
+                  studentAvatarKey: AvatarStorage.studentKey(
+                    _controller.tokens.profileId,
+                  ),
                   isLoading: _controller.profileLoading,
                   error: _controller.profileErrorForView,
                   onRefresh: () => _guardedRefresh(_controller.refreshProfile),
@@ -229,31 +224,24 @@ class _HomeScreenState extends State<HomeScreen> {
                   schedule: _controller.schedule,
                   marks: _controller.marks,
                   grades: _controller.grades,
+                  attendances: _controller.attendances,
                   bells: _controller.bells,
                   isLoading: _controller.scheduleLoading,
                   error: _controller.scheduleErrorForView,
                   weekStart: _controller.weekStart,
                   onWeekChanged: _controller.changeWeek,
-                  onRefresh: () =>
-                      _guardedRefresh(_controller.refreshSchedule),
-                  onDeleteLessons: (date, ids) =>
-                      _controller.deleteScheduleLessons(
-                        date: date,
-                        lessonIds: ids,
-                      ),
+                  onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
+                  onDeleteLessons: (date, ids) => _controller
+                      .deleteScheduleLessons(date: date, lessonIds: ids),
                   onMoveLessons: (date, moves) =>
-                      _controller.moveScheduleLessons(
-                        date: date,
-                        moves: moves,
-                      ),
+                      _controller.moveScheduleLessons(date: date, moves: moves),
                   onRevertOverrideIds: (ids) =>
                       _controller.revertScheduleOverrides(ids),
                   onRevertOverride: (id) =>
                       _controller.revertScheduleOverride(id),
                   onRevertWeek: () => _controller.revertWeekOverrides(),
                   onLoadWeekOverrides: () => _controller.loadWeekOverrides(),
-                  onLoadWeekRawLessons: () =>
-                      _controller.loadWeekRawLessons(),
+                  onLoadWeekRawLessons: () => _controller.loadWeekRawLessons(),
                   daysWithOverrides: _controller.daysWithOverrides,
                   changedLessonIds: _controller.changedLessonIds,
                   onBreakPair: (date, primaryId, secondaryId) =>
@@ -324,10 +312,7 @@ class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   final HomeController controller;
   final VoidCallback onOpenSettings;
 
-  const _HomeAppBar({
-    required this.controller,
-    required this.onOpenSettings,
-  });
+  const _HomeAppBar({required this.controller, required this.onOpenSettings});
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -375,7 +360,8 @@ class _BottomBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final navTheme = NavigationBarTheme.of(context);
-    final bg = navTheme.backgroundColor ??
+    final bg =
+        navTheme.backgroundColor ??
         Theme.of(context).colorScheme.surfaceContainer;
 
     return Material(
@@ -466,9 +452,9 @@ class _TrailingAction extends StatelessWidget {
       child: Center(
         child: needsAuth
             ? IconTheme.merge(
-          data: IconThemeData(color: theme.colorScheme.error),
-          child: child,
-        )
+                data: IconThemeData(color: theme.colorScheme.error),
+                child: child,
+              )
             : child,
       ),
     );

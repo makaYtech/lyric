@@ -30,11 +30,6 @@ class DebugSnapshot {
 /// Утилиты для отладки: сброс отдельных частей состояния приложения.
 /// Всё, что тут есть — деструктивно (или почти), вызывается только из
 /// DeveloperScreen в настройках.
-///
-/// Логика такая: «сбросить отдельный токен» = сделать сессию заведомо
-/// неполной, чтобы посмотреть, как приложение себя поведёт при следующем
-/// запросе. Например, убрать device_token → refresh невозможен → должен
-/// появиться ReauthSheet. Это и нужно, чтобы проверять грабли.
 class DebugTools {
   DebugTools._();
   static final instance = DebugTools._();
@@ -56,9 +51,6 @@ class DebugTools {
 
   // ── Сессия ЭПОС: точечные сбросы ──────────────────────────────────────
 
-  /// Убирает device_token. auth_token продолжает работать, но при первом
-  /// 401 обновиться уже не сможем — упрёмся в ReauthSheet. Полезно, чтобы
-  /// проверить, как приложение отрабатывает отсутствие device-token.
   Future<void> clearDeviceToken() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -77,12 +69,6 @@ class DebugTools {
     SessionNotifier.instance.reset();
   }
 
-  /// Подменяет auth_token на заведомо мусорный. Следующий запрос к API
-  /// отдаст 401 → AuthCoordinator попробует renew() → успех = устройство
-  /// сессии живое, провал = уйдём в ReauthSheet.
-  ///
-  /// Именно так проверяется, что новый flow действительно «самовосста-
-  /// навливается»: после яда должно само вылечиться за один 401.
   Future<void> poisonAuthToken() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -92,9 +78,6 @@ class DebugTools {
     SessionNotifier.instance.reset();
   }
 
-  /// Обнуляет OAuth-пару (access + refresh + expires). Для device-token-
-  /// сессии это no-op по последствиям (она их не использует), для
-  /// legacy — сломает refresh.
   Future<void> clearOauthPair() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -129,8 +112,6 @@ class DebugTools {
     AuthCoordinator.instance.setSession(updated);
   }
 
-  /// Стирает EposSession целиком (secure storage + память).
-  /// Следующий запуск увидит отсутствие сессии и откроет LoginScreen.
   Future<void> clearWholeEposSession() async {
     AuthCoordinator.instance.clear();
     await SessionRefreshService.instance.clear();
@@ -139,9 +120,6 @@ class DebugTools {
 
   // ── device_key ─────────────────────────────────────────────────────────
 
-  /// Сбросить device_key. Следующий интерактивный вход сгенерирует новый.
-  /// Старый ключ на сервере останется висеть — сам по себе он бесполезен
-  /// без нашего UI, так что это безопасно.
   Future<void> resetDeviceKey() =>
       DeviceTokenAuthService.instance.resetDeviceKey();
 
@@ -153,29 +131,17 @@ class DebugTools {
 
   Future<void> clearProfileCache() => _cache.remove('profile');
   Future<void> clearAcademicYearsCache() => _cache.remove('academic_years');
-  Future<void> clearStudentGroupsCache() =>
-      _cache.remove('student_groups');
+  Future<void> clearStudentGroupsCache() => _cache.remove('student_groups');
 
-  /// Сносим только записи с префиксом avatar: — не трогая настройки
-  /// приложения (theme_mode и прочее). После — обязательно сбрасываем
-  /// in-memory кэш AvatarStorage, иначе в памяти останутся пути к файлам,
-  /// ссылок на которые в prefs уже нет, и аватарки будут показываться
-  /// «из ниоткуда» до перезапуска.
   Future<void> clearAvatarCache() async {
     final prefs = await SharedPreferences.getInstance();
-    final keys = prefs
-        .getKeys()
-        .where((k) => k.startsWith('avatar:'))
-        .toList();
+    final keys = prefs.getKeys().where((k) => k.startsWith('avatar:')).toList();
     for (final key in keys) {
       await prefs.remove(key);
     }
     AvatarStorage.invalidateAll();
   }
 
-  /// Сбросить prefs расписания/учителей/ДЗ к дефолтным значениям.
-  /// Пишем значения по умолчанию прямо в prefs — так ValueNotifier'ы
-  /// обновятся, а не останутся с прошлыми значениями до перезапуска.
   Future<void> resetDisplayPrefs() async {
     await _cache.saveInt('merge_lesson_pairs', 0);
     await _cache.saveInt('teacher_subjects_limit', 5);
@@ -185,8 +151,6 @@ class DebugTools {
     await _cache.saveInt('homework_group_by_due', 0);
   }
 
-  /// Полный снос SharedPreferences кроме темы. Эквивалент
-  /// CacheService.clearAll(), вынесен сюда для симметрии с UI.
   Future<void> clearAllSharedPrefs() async {
     await _cache.clearAll();
     AvatarStorage.invalidateAll();
@@ -205,6 +169,9 @@ class DebugTools {
   Future<void> clearMarks() =>
       AppDatabase.instance.clearTable(AppDatabase.tableMarks);
 
+  Future<void> clearAttendances() =>
+      AppDatabase.instance.clearTable(AppDatabase.tableAttendances);
+
   Future<void> clearHomeworks() =>
       AppDatabase.instance.clearTable(AppDatabase.tableHomeworks);
 
@@ -215,8 +182,6 @@ class DebugTools {
 
   // ── Действия ───────────────────────────────────────────────────────────
 
-  /// Прогнать refresh сессии через AuthCoordinator вручную.
-  /// Возвращает человекочитаемый результат — для snackbar'а.
   Future<String> forceSessionRefresh() async {
     final outcome = await AuthCoordinator.instance.renew();
     return switch (outcome) {
@@ -228,10 +193,6 @@ class DebugTools {
 
   // ── Полный сброс ───────────────────────────────────────────────────────
 
-  /// «Как после переустановки, но без потери device_key и темы»:
-  /// стирает сессию, кэш, prefs (кроме темы) и всю БД.
-  /// device_key и theme_mode намеренно остаются — их потеря не входит
-  /// в сценарий «сбросить данные пользователя».
   Future<void> fullWipe({bool alsoDeviceKey = false}) async {
     AuthCoordinator.instance.clear();
     await SessionRefreshService.instance.clear();
@@ -246,9 +207,7 @@ class DebugTools {
   }
 }
 
-/// Помощник для UI: не использовать в проде. Просто обёртка над
-/// FlutterSecureStorage на случай, если понадобится что-то ещё
-/// вытащить из хранилища руками.
+/// Помощник для UI: не использовать в проде.
 Future<String?> _unusedReadSecure(String key) async {
   const storage = FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),

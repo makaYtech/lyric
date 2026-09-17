@@ -1,20 +1,31 @@
 import 'package:flutter/material.dart';
 
+import '../../models/attendance.dart';
 import '../../models/lesson.dart';
+import '../../models/lesson_grades.dart';
+import '../common/absence_dot.dart';
 import '../common/attachment_button.dart';
+import '../common/grade_dot.dart';
 import '../common/my_work_section.dart';
 
 /// Содержимое модалки, которая выезжает снизу по тапу на урок.
 /// Высоту контролирует DraggableScrollableSheet снаружи — сюда
 /// приходит его scrollController, чтобы жест «потянуть вверх»
 /// работал на всём содержимом, а не только на handle.
+///
+/// Шапка: слева — предмет, время, кабинет и оценки (под кабинетом),
+/// справа — учитель и «Н» (под учителем).
 class LessonDetailsSheet extends StatefulWidget {
   final Lesson lesson;
+  final List<LessonGrade> grades;
+  final Attendance? attendance;
   final ScrollController? scrollController;
 
   const LessonDetailsSheet({
     super.key,
     required this.lesson,
+    this.grades = const [],
+    this.attendance,
     this.scrollController,
   });
 
@@ -45,8 +56,10 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
     final lesson = widget.lesson;
     final hasTeacher = lesson.teacher != null && lesson.teacher!.isNotEmpty;
     final hasRoom = lesson.room != null && lesson.room!.isNotEmpty;
-    final homeworks =
-    lesson.homeworks.isEmpty ? const ['не задано'] : lesson.homeworks;
+    final attendance = widget.attendance;
+    final homeworks = lesson.homeworks.isEmpty
+        ? const ['не задано']
+        : lesson.homeworks;
 
     return SafeArea(
       top: false,
@@ -60,66 +73,116 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              lesson.subject,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 6),
-
+            // ── Шапка: слева данные урока, справа учитель + «Н» ─────────
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Text(
-                      '${lesson.startTime} – ${lesson.endTime}',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                    if (lesson.isPaired) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.secondaryContainer,
-                          borderRadius: BorderRadius.circular(6),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        lesson.subject,
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
                         ),
-                        child: Text(
-                          lesson.breakMinutes != null
-                              ? 'пара · перемена ${lesson.breakMinutes} мин'
-                              : 'пара',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSecondaryContainer,
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Text(
+                            '${lesson.startTime} – ${lesson.endTime}',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
+                            ),
                           ),
+                          if (lesson.isPaired) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.secondaryContainer,
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                lesson.breakMinutes != null
+                                    ? 'пара · перемена ${lesson.breakMinutes} мин'
+                                    : 'пара',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onSecondaryContainer,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      if (hasRoom) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          lesson.room!,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                      if (widget.grades.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 4,
+                          runSpacing: 4,
+                          children: [
+                            for (final g in widget.grades)
+                              GradeDot(
+                                value: g.value,
+                                size: 24,
+                                onTap: () => showGradeDetails(
+                                  context,
+                                  value: g.value,
+                                  receivedAt: g.receivedAt,
+                                  subject: lesson.subject,
+                                  workType: g.workType,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    if (hasTeacher)
+                      Text(
+                        lesson.teacher!,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    if (attendance != null) ...[
+                      const SizedBox(height: 6),
+                      AbsenceDot(
+                        excused: attendance.isExcused,
+                        size: 24,
+                        onTap: () => showAbsenceDetails(
+                          context,
+                          attendance: attendance,
+                          subject: lesson.subject,
+                          teacher: lesson.teacher,
                         ),
                       ),
                     ],
                   ],
                 ),
-                if (hasTeacher)
-                  Text(
-                    lesson.teacher!,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
               ],
             ),
-
-            if (hasRoom) ...[
-              const SizedBox(height: 4),
-              Text(
-                lesson.room!,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
 
             const SizedBox(height: 16),
             const Divider(height: 1),
@@ -215,10 +278,7 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
                   for (final a in lesson.attachments)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
-                      child: AttachmentButton(
-                        attachments: [a],
-                        label: a.name,
-                      ),
+                      child: AttachmentButton(attachments: [a], label: a.name),
                     ),
                 ],
               ),

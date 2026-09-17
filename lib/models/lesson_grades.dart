@@ -10,11 +10,7 @@ class LessonGrade {
   final DateTime? receivedAt;
   final String? workType;
 
-  const LessonGrade(
-      this.value,
-      this.receivedAt, {
-        this.workType,
-      });
+  const LessonGrade(this.value, this.receivedAt, {this.workType});
 }
 
 /// Быстрый поиск оценок по id урока из schedule_items
@@ -22,9 +18,8 @@ class LessonGrade {
 /// У пары уроков (mergeLessonPairs) secondaryId — id второго урока,
 /// поэтому его оценки тоже подтягиваются.
 ///
-/// Оценки-отсутствия («Н», Mark.isAbsence) сюда НЕ попадают: в UI мы
-/// их не показываем вообще. Парсер и БД их знают (API их отдаёт
-/// нечисловым name), но до расписания они не доезжают.
+/// Отсутствия («Н») в marks больше не приходят — они идут отдельным
+/// потоком из /core/api/student_profiles и живут в LessonAttendanceLookup.
 class LessonGradesLookup {
   final Map<int, List<LessonGrade>> _byLessonId;
 
@@ -33,10 +28,10 @@ class LessonGradesLookup {
   static const empty = LessonGradesLookup._({});
 
   factory LessonGradesLookup.fromMarks(
-      List<Mark>? marks, {
-        List<DaySchedule>? schedule,
-        List<SubjectGrade>? grades,
-      }) {
+    List<Mark>? marks, {
+    List<DaySchedule>? schedule,
+    List<SubjectGrade>? grades,
+  }) {
     if (marks == null || marks.isEmpty) return empty;
 
     final lessonSubject = <int, String>{};
@@ -55,21 +50,18 @@ class LessonGradesLookup {
 
     final map = <int, List<LessonGrade>>{};
     for (final m in marks) {
-      // «Н» (отсутствовал) в интерфейсе расписания не показываем.
-      if (m.isAbsence) continue;
       final id = m.scheduleLessonId;
       if (id == null) continue;
-      final workType = m.workType ??
+      final workType =
+          m.workType ??
           _resolveWorkType(
             m,
             subjectName: lessonSubject[id],
             subjectByName: subjectByName,
           );
-      map.putIfAbsent(id, () => <LessonGrade>[]).add(LessonGrade(
-        m.value,
-        m.createdAt,
-        workType: workType,
-      ));
+      map
+          .putIfAbsent(id, () => <LessonGrade>[])
+          .add(LessonGrade(m.value, m.createdAt, workType: workType));
     }
 
     for (final list in map.values) {
@@ -85,10 +77,10 @@ class LessonGradesLookup {
   }
 
   static String? _resolveWorkType(
-      Mark mark, {
-        String? subjectName,
-        required Map<String, SubjectGrade> subjectByName,
-      }) {
+    Mark mark, {
+    String? subjectName,
+    required Map<String, SubjectGrade> subjectByName,
+  }) {
     if (subjectName == null) return null;
     final subject = subjectByName[subjectName];
     if (subject == null) return null;
@@ -98,10 +90,9 @@ class LessonGradesLookup {
       for (final wt in period.workTypes) {
         for (var i = 0; i < wt.grades.length; i++) {
           if (wt.grades[i] != mark.value) continue;
-          candidates.add(_WorkTypeCandidate(
-            workType: wt.workType,
-            date: wt.dateAt(i),
-          ));
+          candidates.add(
+            _WorkTypeCandidate(workType: wt.workType, date: wt.dateAt(i)),
+          );
         }
       }
     }
