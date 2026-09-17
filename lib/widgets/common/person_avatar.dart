@@ -6,28 +6,15 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/settings/avatar_storage.dart';
 import '../../core/util/names.dart';
 
-/// Круглая аватарка. Если есть сохранённый путь к картинке на диске —
-/// показывает её (читая файл каждый раз с устройства), иначе — инициалы.
-///
-/// Если задан [avatarKey] — по тапу можно выбрать/заменить картинку
-/// через системный picker; долгий тап — сбросить обратно на инициалы.
-/// Файл никуда не копируется: в настройках хранится только путь.
-///
-/// Подписан на per-key нотифаер из [AvatarStorage] — перерисовывается
-/// ровно тогда, когда меняется ЕГО ключ, а не при любой смене аватарок
-/// в дереве (как было с глобальным revision). Плюс быстрый синхронный
-/// путь через in-memory кэш: если ключ уже читали, первый кадр рисует
-/// картинку без мигания инициалами.
+/// Круглая аватарка. Путь к картинке читается синхронно из
+/// [AvatarStorage.cachedPath] внутри [ValueListenableBuilder] —
+/// как только AvatarStorage отдаст путь (или он там уже есть),
+/// виджет сам перерисуется. Никаких ручных setState из async-цепочки,
+/// из-за которых была гонка на первом старте.
 class PersonAvatar extends StatefulWidget {
   final String fullName;
   final double radius;
-
-  /// Ключ, под которым хранится путь к картинке. Если null — картинка
-  /// не хранится, аватар всегда с инициалами, тап ничего не делает.
   final String? avatarKey;
-
-  /// Внешний путь (например, из сетевого источника). Если задан и
-  /// локальной картинки нет — используется он.
   final String? photoUrl;
 
   const PersonAvatar({
@@ -43,64 +30,30 @@ class PersonAvatar extends StatefulWidget {
 }
 
 class _PersonAvatarState extends State<PersonAvatar> {
-  String? _localPath;
   bool _loading = false;
-  ValueNotifier<int>? _revision;
 
   @override
   void initState() {
     super.initState();
-    _attach();
+    _ensureLoaded();
   }
 
   @override
   void didUpdateWidget(covariant PersonAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.avatarKey != widget.avatarKey) {
-      _detach();
-      _attach();
+      _ensureLoaded();
     }
   }
 
-  @override
-  void dispose() {
-    _detach();
-    super.dispose();
-  }
-
-  void _attach() {
+  /// Триггерит загрузку из prefs. Сам ничего не делает с UI — за это
+  /// отвечает ValueListenableBuilder ниже. Если ключ уже в памяти,
+  /// вызов дешёвый и ничего не произойдёт.
+  void _ensureLoaded() {
     final key = widget.avatarKey;
-    if (key == null) {
-      _localPath = null;
-      return;
-    }
-    // Синхронный быстрый путь: если ключ уже читали из prefs — сразу
-    // показываем, без await. Это критично, когда на экране 20 учителей:
-    // без этого каждый build мигал бы фоллбэком на инициалы.
-    if (AvatarStorage.isLoaded(key)) {
-      _localPath = AvatarStorage.cachedPath(key);
-    } else {
-      _loadFromPrefs(key);
-    }
-    _revision = AvatarStorage.revisionFor(key);
-    _revision!.addListener(_onRevision);
-  }
-
-  void _detach() {
-    _revision?.removeListener(_onRevision);
-    _revision = null;
-  }
-
-  void _onRevision() {
-    final key = widget.avatarKey;
-    if (key == null || !mounted) return;
-    setState(() => _localPath = AvatarStorage.cachedPath(key));
-  }
-
-  Future<void> _loadFromPrefs(String key) async {
-    final path = await AvatarStorage.path(key);
-    if (!mounted || widget.avatarKey != key) return;
-    setState(() => _localPath = path);
+    if (key == null) return;
+    if (AvatarStorage.isLoaded(key)) return;
+    AvatarStorage.path(key);
   }
 
   Future<void> _pickImage() async {
@@ -111,9 +64,21 @@ class _PersonAvatarState extends State<PersonAvatar> {
       final picker = ImagePicker();
       final picked = await picker.pickImage(source: ImageSource.gallery);
       if (picked == null) return;
+
+      // Ждём, пока файл точно дописан.
+      if (!await _waitForFile(picked.path)) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Не удалось прочитать выбранный файл')),
+        );
+        return;
+      }
+
+      await FileImage(File(picked.path)).evict();
+      if (mounted) {
+        await precacheImage(FileImage(File(picked.path)), context);
+      }
       await AvatarStorage.savePath(key, picked.path);
-      // revision listener сам перечитает путь и сделает setState —
-      // здесь только снимаем индикатор загрузки.
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -124,6 +89,17 @@ class _PersonAvatarState extends State<PersonAvatar> {
     }
   }
 
+  static Future<bool> _waitForFile(String path) async {
+    final f = File(path);
+    for (var i = 0; i < 20; i++) {
+      try {
+        if (await f.exists() && await f.length() > 0) return true;
+      } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 50));
+    }
+    return false;
+  }
+
   Future<void> _resetImage() async {
     final key = widget.avatarKey;
     if (key == null) return;
@@ -132,33 +108,47 @@ class _PersonAvatarState extends State<PersonAvatar> {
 
   @override
   Widget build(BuildContext context) {
+    final key = widget.avatarKey;
+    if (key == null) return _render(null);
+
+    return ValueListenableBuilder<int>(
+      valueListenable: AvatarStorage.revisionFor(key),
+      builder: (context, _, __) => _render(AvatarStorage.cachedPath(key)),
+    );
+  }
+
+  Widget _render(String? localPath) {
     final theme = Theme.of(context);
-    final hasLocal = _localPath != null;
-    final hasNetwork = !hasLocal &&
-        widget.photoUrl != null &&
-        widget.photoUrl!.isNotEmpty;
+    final hasLocal = localPath != null && localPath.isNotEmpty;
+    final hasNetwork =
+        !hasLocal && widget.photoUrl != null && widget.photoUrl!.isNotEmpty;
+
+    Widget imageWidget;
+    if (hasLocal) {
+      imageWidget = Image(
+        image: FileImage(File(localPath)),
+        // Ключ по пути: при смене картинки Flutter пересоздаст элемент
+        // и не подсунет старый кадр из кэша.
+        key: ValueKey(localPath),
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) => _initialsBox(theme),
+      );
+    } else if (hasNetwork) {
+      imageWidget = Image.network(
+        widget.photoUrl!,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => _initialsBox(theme),
+      );
+    } else {
+      imageWidget = _initialsBox(theme);
+    }
 
     final avatar = ClipOval(
       child: SizedBox(
         width: widget.radius * 2,
         height: widget.radius * 2,
-        child: hasLocal
-            ? Image.file(
-          File(_localPath!),
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _initialsBox(theme),
-          cacheWidth: (widget.radius *
-              2 *
-              MediaQuery.of(context).devicePixelRatio)
-              .round(),
-        )
-            : hasNetwork
-            ? Image.network(
-          widget.photoUrl!,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _initialsBox(theme),
-        )
-            : _initialsBox(theme),
+        child: imageWidget,
       ),
     );
 
@@ -196,9 +186,7 @@ class _PersonAvatarState extends State<PersonAvatar> {
               decoration: BoxDecoration(
                 color: theme.colorScheme.surface,
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: theme.colorScheme.outlineVariant,
-                ),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
               ),
               child: Icon(
                 Icons.edit,

@@ -1,6 +1,8 @@
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+
 import 'dart:io';
+
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/auth/auth_config.dart';
@@ -9,6 +11,7 @@ import 'core/auth/myschool_token_storage.dart';
 import 'core/auth/session_refresh_service.dart';
 import 'core/backend/backends.dart';
 import 'core/backend/backends_prefs.dart';
+import 'core/settings/update_prefs.dart';
 import 'core/theme/theme_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
@@ -24,14 +27,17 @@ Future<void> main() async {
   final themeController = await ThemeController.load();
   await BackendPrefs.load();
   await AuthConfig.load();
+  await UpdatePrefs.load();
 
   if (BackendPrefs.current.value == Backends.mySchool) {
     final msTokens = await MySchoolTokenStorage().load();
-    runApp(EposApp(
-      themeController: themeController,
-      initialEposSession: null,
-      initialMySchoolTokens: msTokens,
-    ));
+    runApp(
+      EposApp(
+        themeController: themeController,
+        initialEposSession: null,
+        initialMySchoolTokens: msTokens,
+      ),
+    );
     return;
   }
 
@@ -43,11 +49,13 @@ Future<void> main() async {
     session = await SessionRefreshService.instance.ensureFresh(session);
   }
 
-  runApp(EposApp(
-    themeController: themeController,
-    initialEposSession: session,
-    initialMySchoolTokens: null,
-  ));
+  runApp(
+    EposApp(
+      themeController: themeController,
+      initialEposSession: session,
+      initialMySchoolTokens: null,
+    ),
+  );
 }
 
 class EposApp extends StatelessWidget {
@@ -88,13 +96,15 @@ class EposApp extends StatelessWidget {
               themeMode: themeController.mode,
               theme: ThemeData(
                 useMaterial3: true,
-                colorScheme: lightDynamic ??
+                colorScheme:
+                    lightDynamic ??
                     ColorScheme.fromSeed(seedColor: Colors.indigo),
               ),
               darkTheme: ThemeData(
                 useMaterial3: true,
                 brightness: Brightness.dark,
-                colorScheme: darkDynamic ??
+                colorScheme:
+                    darkDynamic ??
                     ColorScheme.fromSeed(
                       seedColor: Colors.indigo,
                       brightness: Brightness.dark,
