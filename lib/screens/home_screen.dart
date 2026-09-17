@@ -16,6 +16,9 @@ import 'reauth_screen.dart';
 import 'schedule_view.dart';
 import 'settings_screen.dart';
 import '../services/attachment_service.dart';
+import '../core/settings/update_prefs.dart';
+import '../services/update/update_service.dart';
+import '../widgets/update/update_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   final EposSession session;
@@ -52,6 +55,34 @@ class _HomeScreenState extends State<HomeScreen> {
     _session.addListener(_onSessionChanged);
     _controller.init();
     AttachmentService.instance.setSession(widget.session);
+
+    // Проверка обновлений — один раз за запуск, через небольшую
+    // задержку, чтобы HomeScreen успел отрисоваться.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 1500), _checkUpdatesOnStart);
+    });
+  }
+
+  Future<void> _checkUpdatesOnStart() async {
+    if (!mounted) return;
+    final check =
+    await UpdateService.instance.check(UpdatePrefs.channel.value);
+    if (!mounted) return;
+    if (check.result != UpdateCheckResult.available) return;
+
+    final info = check.info;
+    if (info == null) return;
+
+    final started = await showUpdateSheet(context, info);
+    if (!mounted) return;
+
+    if (!started) {
+      // Пользователь отказался — сообщаем, что кнопка есть в настройках.
+      _showErrorSnack(
+        'Обновиться можно в меню настроек',
+        errorStyle: false,
+      );
+    }
   }
 
   @override
@@ -110,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
     await _controller.refreshAll();
   }
 
-  void _showErrorSnack(String message) {
+  void _showErrorSnack(String message, {bool errorStyle = true}) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
@@ -118,9 +149,11 @@ class _HomeScreenState extends State<HomeScreen> {
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(milliseconds: 1500),
+        duration: const Duration(milliseconds: 2500),
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 96),
-        backgroundColor: Theme.of(context).colorScheme.errorContainer,
+        backgroundColor: errorStyle
+            ? Theme.of(context).colorScheme.errorContainer
+            : null,
         dismissDirection: DismissDirection.horizontal,
       ),
     );

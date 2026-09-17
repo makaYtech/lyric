@@ -73,7 +73,6 @@ class LessonCard extends StatelessWidget {
     final theme = Theme.of(context);
     final dim = theme.colorScheme.onSurfaceVariant;
     final hasTeacher = lesson.teacher != null && lesson.teacher!.isNotEmpty;
-    final absences = grades.where((g) => g.isAbsence).toList();
 
     final selected = _isSelected;
     final faded = isSelectionMode && !selected;
@@ -153,45 +152,25 @@ class LessonCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (hasTeacher || absences.isNotEmpty) ...[
+              if (hasTeacher) ...[
                 const SizedBox(width: 12),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    if (absences.isNotEmpty)
-                      _AbsenceBadge(
-                        onTap: () => showAbsenceDetails(
-                          context,
-                          lesson: lesson,
-                          grades: absences,
-                        ),
-                      ),
-                    if (hasTeacher)
-                      Padding(
-                        padding: EdgeInsets.only(
-                          top: absences.isNotEmpty ? 2 : 0,
-                        ),
-                        child: Text(
-                          lesson.teacher!,
-                          style:
-                          theme.textTheme.bodySmall?.copyWith(color: dim),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
+                Text(
+                  lesson.teacher!,
+                  style: theme.textTheme.bodySmall?.copyWith(color: dim),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ],
           ),
-          if (grades.where((g) => !g.isAbsence).isNotEmpty) ...[
+          if (grades.isNotEmpty) ...[
             const SizedBox(height: 8),
             Wrap(
               spacing: 4,
               runSpacing: 4,
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                for (final g in grades.where((g) => !g.isAbsence))
+                for (final g in grades)
                   GradeDot(
                     value: g.value,
                     size: 24,
@@ -241,166 +220,4 @@ class LessonCard extends StatelessWidget {
       child: content,
     );
   }
-}
-
-class _AbsenceBadge extends StatelessWidget {
-  final VoidCallback onTap;
-  const _AbsenceBadge({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 22,
-        height: 22,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: theme.colorScheme.error.withOpacity(0.15),
-          shape: BoxShape.circle,
-          border: Border.all(color: theme.colorScheme.error, width: 1),
-        ),
-        child: Text(
-          'Н',
-          style: TextStyle(
-            color: theme.colorScheme.error,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-Future<void> showAbsenceDetails(
-    BuildContext context, {
-      required Lesson lesson,
-      required List<LessonGrade> grades,
-    }) {
-  final theme = Theme.of(context);
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (_) => SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.error.withOpacity(0.15),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: theme.colorScheme.error),
-                  ),
-                  child: Text(
-                    'Н',
-                    style: TextStyle(
-                      color: theme.colorScheme.error,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Отсутствие',
-                        style: theme.textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          lesson.subject,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            for (var i = 0; i < grades.length; i++) ...[
-              if (i > 0) const Divider(height: 24),
-              _AbsenceRow(grade: grades[i], lesson: lesson),
-            ],
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-class _AbsenceRow extends StatelessWidget {
-  final LessonGrade grade;
-  final Lesson lesson;
-
-  const _AbsenceRow({required this.grade, required this.lesson});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Получено',
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          grade.receivedAt == null ? '—' : _formatDate(grade.receivedAt!),
-          style: theme.textTheme.titleMedium,
-        ),
-        if (grade.workType != null && grade.workType!.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            'Форма контроля',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(grade.workType!, style: theme.textTheme.bodyLarge),
-        ],
-        if (lesson.teacher != null && lesson.teacher!.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          Text(
-            'Учитель',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(lesson.teacher!, style: theme.textTheme.bodyLarge),
-        ],
-      ],
-    );
-  }
-
-  static String _formatDate(DateTime d) =>
-      '${d.day.toString().padLeft(2, '0')}.'
-          '${d.month.toString().padLeft(2, '0')}.'
-          '${d.year}';
 }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 // ВАЖНО: замени `epos_app` на имя своего пакета из pubspec.yaml.
-import 'package:epos_clien/widgets/common/grade_dot.dart';
+import 'package:lyric/widgets/common/grade_dot.dart';
 
 void main() {
   group('gradeColor', () {

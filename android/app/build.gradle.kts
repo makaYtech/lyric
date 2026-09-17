@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.epos_clien"
+    namespace = "io.github.makaYtech.lyric"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -25,17 +25,17 @@ android {
             dimension = "default"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
-            resValue("string", "app_name", "ЭПОС Dev")
+            resValue("string", "app_name", "Лирика Dev")
         }
         create("prod") {
             dimension = "default"
-            resValue("string", "app_name", "ЭПОС")
+            resValue("string", "app_name", "Лирика")
         }
     }
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.epos_clien"
+        applicationId = "io.github.makaYtech.lyric"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

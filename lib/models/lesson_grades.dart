@@ -4,18 +4,16 @@ import 'mark.dart';
 import 'subject_grade.dart';
 
 /// Одна оценка на уроке — значение, когда получили и (опционально)
-/// тип работы. isAbsence — «Н» (отсутствовал), value в этом случае 0.
+/// тип работы.
 class LessonGrade {
   final int value;
   final DateTime? receivedAt;
   final String? workType;
-  final bool isAbsence;
 
   const LessonGrade(
       this.value,
       this.receivedAt, {
         this.workType,
-        this.isAbsence = false,
       });
 }
 
@@ -23,6 +21,10 @@ class LessonGrade {
 /// (Mark.scheduleLessonId == Lesson.id).
 /// У пары уроков (mergeLessonPairs) secondaryId — id второго урока,
 /// поэтому его оценки тоже подтягиваются.
+///
+/// Оценки-отсутствия («Н», Mark.isAbsence) сюда НЕ попадают: в UI мы
+/// их не показываем вообще. Парсер и БД их знают (API их отдаёт
+/// нечисловым name), но до расписания они не доезжают.
 class LessonGradesLookup {
   final Map<int, List<LessonGrade>> _byLessonId;
 
@@ -53,6 +55,8 @@ class LessonGradesLookup {
 
     final map = <int, List<LessonGrade>>{};
     for (final m in marks) {
+      // «Н» (отсутствовал) в интерфейсе расписания не показываем.
+      if (m.isAbsence) continue;
       final id = m.scheduleLessonId;
       if (id == null) continue;
       final workType = m.workType ??
@@ -65,7 +69,6 @@ class LessonGradesLookup {
         m.value,
         m.createdAt,
         workType: workType,
-        isAbsence: m.isAbsence,
       ));
     }
 

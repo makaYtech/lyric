@@ -5,6 +5,25 @@ allprojects {
     }
 }
 
+subprojects {
+    afterEvaluate {
+        if (extensions.findByName("android") != null) {
+            val android = extensions.getByName("android")
+            val current = try {
+                android.javaClass.getMethod("getCompileSdkVersion")
+                    .invoke(android) as? String
+            } catch (_: Exception) { null }
+
+            val version = current?.removePrefix("android-")?.toIntOrNull()
+            if (version == null || version < 36) {
+                logger.warn("Forcing compileSdk 36 for ${project.name} (was $current)")
+                android.javaClass.getMethod("compileSdkVersion", Int::class.java)
+                    .invoke(android, 36)
+            }
+        }
+    }
+}
+
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
         .dir("../../build")

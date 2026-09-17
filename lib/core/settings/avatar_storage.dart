@@ -1,10 +1,20 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../cache/cache_service.dart';
 
 /// Хранит ТОЛЬКО путь к картинке на устройстве. Сам файл никуда не
 /// копируется и не кэшируется — при каждой отрисовке аватар читается
 /// с диска. Если файл удалили/переместили — упадёт фоллбэк на инициалы.
+///
+/// ВАЖНО: image_picker отдаёт путь к файлу во временной папке (кэш
+/// приложения). Кэш система может очистить в любой момент — тогда
+/// аватар пропадёт. Поэтому savePath() копирует картинку в постоянное
+/// приватное хранилище приложения (<Documents>/avatars/) и запоминает
+/// уже этот путь. Пользовательский оригинал в галерее не трогаем.
 ///
 /// Ключ — произвольная строка, уникальная для персоны:
 ///   student:<profileId>
@@ -22,6 +32,9 @@ import '../cache/cache_service.dart';
 class AvatarStorage {
   AvatarStorage._();
   static final _cache = CacheService();
+
+  /// Подпапка в Documents, куда складываем копии аватарок.
+  static const _avatarsSubdir = 'avatars';
 
   /// Кэш путей в памяти. null означает "не задано", отсутствие ключа —
   /// "ещё не читали из prefs". Различить через [isLoaded].
@@ -72,11 +85,57 @@ class AvatarStorage {
   }
 
   static Future<void> savePath(String key, String? path) async {
-    final value = (path == null || path.isEmpty) ? '' : path;
-    await _cache.saveString(key, value);
-    _paths[key] = value.isEmpty ? null : value;
+    if (path == null || path.isEmpty) {
+      await clear(key);
+      return;
+    }
+
+    // Копируем исходный файл в постоянное хранилище приложения. Если
+    // копирование почему-то не удалось — сохраняем исходный путь, как
+    // было раньше: хуже текущего поведения точно не станет.
+    final stored = await _persistFile(key, path);
+
+    await _cache.saveString(key, stored);
+    _paths[key] = stored;
     _loaded.add(key);
     revisionFor(key).value++;
+  }
+
+  /// Копирует [sourcePath] в `<Documents>/avatars/<safeKey><ext>`.
+  /// Прежний файл этого ключа (мог остаться с другим расширением при
+  /// смене картинки .jpg → .png) удаляется, чтобы не копить мусор.
+  static Future<String> _persistFile(String key, String sourcePath) async {
+    try {
+      final src = File(sourcePath);
+      if (!await src.exists()) return sourcePath;
+
+      final docsDir = await getApplicationDocumentsDirectory();
+      final avatarsDir = Directory(p.join(docsDir.path, _avatarsSubdir));
+      if (!await avatarsDir.exists()) {
+        await avatarsDir.create(recursive: true);
+      }
+
+      final safeKey = _safeFileName(key);
+      final ext = p.extension(sourcePath);
+
+      try {
+        await for (final e in avatarsDir.list()) {
+          if (e is File && p.basenameWithoutExtension(e.path) == safeKey) {
+            await e.delete();
+          }
+        }
+      } catch (_) {
+        // Не смогли подчистить — не критично, файл с тем же именем
+        // и расширением всё равно перезапишется ниже.
+      }
+
+      final dest = File(p.join(avatarsDir.path, '$safeKey$ext'));
+      await src.copy(dest.path);
+      return dest.path;
+    } catch (e) {
+      debugPrint('AvatarStorage._persistFile: копирование не удалось: $e');
+      return sourcePath;
+    }
   }
 
   static Future<void> clear(String key) async {
@@ -89,6 +148,9 @@ class AvatarStorage {
   /// Массовая очистка: одна запись в prefs на ключ, но подписки
   /// нотифаеров дёргаются одним проходом. Используется в настройках,
   /// где сбрасываются аватарки всех учителей сразу.
+  ///
+  /// Файлы на диске не удаляем — в диалоге сброса обещано «файл на
+  /// устройстве не трогаем, только ссылку в приложении».
   static Future<void> clearAll(Iterable<String> keys) async {
     for (final key in keys) {
       await _cache.saveString(key, '');
@@ -112,4 +174,9 @@ class AvatarStorage {
       n.value++;
     }
   }
+
+  /// `avatar:student:42` → `avatar_student_42`. Двоеточие в имени файла
+  /// на некоторых ФС не работает, а `:` в любом случае — плохая идея.
+  static String _safeFileName(String key) =>
+      key.replaceAll(RegExp(r'[^\w\-]+'), '_');
 }

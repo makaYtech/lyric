@@ -17,6 +17,10 @@ import '../widgets/common/person_avatar.dart';
 import 'developer_screen.dart';
 import 'login_screen.dart';
 import '../core/auth/myschool_token_storage.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import '../core/settings/update_prefs.dart';
+import '../services/update/update_service.dart';
+import '../widgets/update/update_sheet.dart';
 
 class SettingsScreen extends StatelessWidget {
   final ThemeController themeController;
@@ -162,6 +166,96 @@ class SettingsScreen extends StatelessWidget {
     );
     if (picked != null) SchedulePrefs.setGapThresholdMinutes(picked);
   }
+
+  // ── Обновления ────────────────────────────────────────────────────────
+
+  Future<void> _pickChannel(BuildContext context) async {
+    final current = UpdatePrefs.channel.value;
+    final picked = await showDialog<UpdateChannel>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Канал обновлений'),
+        children: [
+          for (final c in UpdateChannel.values)
+            RadioListTile<UpdateChannel>(
+              title: Text(_channelTitle(c)),
+              subtitle: Text(_channelDescription(c)),
+              value: c,
+              groupValue: current,
+              onChanged: (v) => Navigator.of(ctx).pop(v),
+            ),
+        ],
+      ),
+    );
+    if (picked != null) {
+      await UpdatePrefs.setChannel(picked);
+    }
+  }
+
+  Future<void> _checkUpdates(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(const SnackBar(
+      content: Text('Проверяем обновления…'),
+      behavior: SnackBarBehavior.floating,
+      duration: Duration(seconds: 1),
+    ));
+
+    final check =
+    await UpdateService.instance.check(UpdatePrefs.channel.value);
+    if (!context.mounted) return;
+
+    messenger.hideCurrentSnackBar();
+
+    switch (check.result) {
+      case UpdateCheckResult.upToDate:
+        messenger.showSnackBar(SnackBar(
+          content: Text(
+            'Установлена последняя версия '
+                '(${check.currentVersion})',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ));
+      case UpdateCheckResult.available:
+        final ok = await showUpdateSheet(context, check.info!);
+        if (!ok && context.mounted) {
+          messenger.showSnackBar(const SnackBar(
+            content: Text('Обновление отложено — можно вернуться сюда позже'),
+            behavior: SnackBarBehavior.floating,
+          ));
+        }
+      case UpdateCheckResult.networkError:
+        messenger.showSnackBar(SnackBar(
+          content: Text(
+            'Не удалось проверить: ${check.error ?? "нет соединения"}',
+          ),
+          behavior: SnackBarBehavior.floating,
+        ));
+      case UpdateCheckResult.parseError:
+        messenger.showSnackBar(SnackBar(
+          content: Text('Ошибка разбора update.json: ${check.error}'),
+          behavior: SnackBarBehavior.floating,
+        ));
+    }
+  }
+
+  static String _channelTitle(UpdateChannel c) => switch (c) {
+    UpdateChannel.release => 'Release',
+    UpdateChannel.beta => 'Beta',
+    UpdateChannel.alpha => 'Alpha',
+  };
+
+  static String _channelDescription(UpdateChannel c) => switch (c) {
+    UpdateChannel.release => 'Стабильные версии (по умолчанию)',
+    UpdateChannel.beta => 'Предрелизные версии',
+    UpdateChannel.alpha => 'Экспериментальные версии',
+  };
+
+  static String _channelLabel(UpdateChannel c) => switch (c) {
+    UpdateChannel.release => 'Release · стабильные',
+    UpdateChannel.beta => 'Beta · предрелизные',
+    UpdateChannel.alpha => 'Alpha · экспериментальные',
+  };
 
   Future<void> _resetStudentAvatar(BuildContext context) async {
     final key = studentAvatarKey;
@@ -571,6 +665,63 @@ class SettingsScreen extends StatelessWidget {
                   ),
                 ),
                 onTap: () => _logout(context),
+              ),
+              const Divider(height: 32),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Обновления',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              ValueListenableBuilder<UpdateChannel>(
+                valueListenable: UpdatePrefs.channel,
+                builder: (context, channel, _) => ListTile(
+                  leading: const Icon(Icons.tune),
+                  title: const Text('Канал обновлений'),
+                  subtitle: Text(_channelLabel(channel)),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _pickChannel(context),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.system_update_alt),
+                title: const Text('Проверить обновление'),
+                subtitle: const Text(
+                  'Вручную проверить выбранный канал и установить новую версию',
+                ),
+                onTap: () => _checkUpdates(context),
+              ),
+              const Divider(height: 32),
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'О приложении',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              FutureBuilder<PackageInfo>(
+                future: PackageInfo.fromPlatform(),
+                builder: (context, snap) => ListTile(
+                  leading: const Icon(Icons.info_outline),
+                  title: const Text('Версия'),
+                  subtitle: Text(
+                    snap.hasData
+                        ? '${snap.data!.version} '
+                        '(сборка ${snap.data!.buildNumber})'
+                        : '—',
+                  ),
+                ),
+              ),
+              const ListTile(
+                leading: Icon(Icons.person_outline),
+                title: Text('Автор'),
+                subtitle: Text('makaYtech'),
+              ),
+              const ListTile(
+                leading: Icon(Icons.code),
+                title: Text('Репозиторий'),
+                subtitle: Text('github.com/makaYtech/lyric_apk'),
               ),
               const Divider(height: 32),
               const Padding(
