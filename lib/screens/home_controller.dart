@@ -91,6 +91,15 @@ class HomeController extends ChangeNotifier {
 
   bool _disposed = false;
 
+  /// Токены «отмены» для асинхронных операций. Инкрементируются при
+  /// каждом новом запуске того же типа операции. Каждый await в теле
+  /// проверяет, что его токен всё ещё актуален — иначе выходит, не
+  /// затирая поля свежими-но-устаревшими данными.
+  int _weekToken = 0;
+  int _yearToken = 0;
+  int _bellsToken = 0;
+  int _scheduleToken = 0;
+
   final profileTick = ValueNotifier<int>(0);
   final gradesTick = ValueNotifier<int>(0);
   final scheduleTick = ValueNotifier<int>(0);
@@ -172,6 +181,23 @@ class HomeController extends ChangeNotifier {
   late DateTime _weekStart;
   DateTime get weekStart => _weekStart;
 
+  /// true — расписание уже один раз проскроллилось на текущий день
+  /// в этом сеансе приложения. Сбрасывается при холодном старте.
+  bool _scheduleAutoScrolledOnce = false;
+  bool get scheduleAutoScrolledOnce => _scheduleAutoScrolledOnce;
+
+  void markScheduleAutoScrolled() {
+    if (_scheduleAutoScrolledOnce) return;
+    _scheduleAutoScrolledOnce = true;
+    // Колбэк приходит из initState/didUpdateWidget ScheduleView, то есть
+    // во время фазы build. Синхронный notifyListeners отсюда уронит
+    // markNeedsBuild() на уже построенных предках (AppBar, BottomBar).
+    // Откладываем на микротаск — он выполнится сразу после текущего build.
+    Future.microtask(() {
+      if (!_disposed) _notify();
+    });
+  }
+
   bool get needsAuth => SessionNotifier.instance.needsAuth;
 
   String get currentTitle => titles[_tabIndex];
@@ -220,6 +246,11 @@ class HomeController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    // Инвалидируем все токены, чтобы висящие await'ы не дописали ничего.
+    _weekToken++;
+    _yearToken++;
+    _bellsToken++;
+    _scheduleToken++;
     SchedulePrefs.showOverrides.removeListener(_onShowOverridesChanged);
     profileTick.dispose();
     gradesTick.dispose();
@@ -258,9 +289,10 @@ class HomeController extends ChangeNotifier {
   // ── Bells ──────────────────────────────────────────────────────────────
 
   Future<void> _loadBells() async {
+    final myToken = ++_bellsToken;
     try {
       final cached = await _bellsRepository.loadCached(_selectedYearId);
-      if (_disposed) return;
+      if (myToken != _bellsToken || _disposed) return;
       if (cached != null) {
         _bells = cached;
         scheduleTick.value++;
@@ -268,6 +300,7 @@ class HomeController extends ChangeNotifier {
       }
 
       final updated = await _bellsRepository.lastUpdated(_selectedYearId);
+      if (myToken != _bellsToken || _disposed) return;
       final stale =
           updated == null || DateTime.now().difference(updated).inHours > 24;
       if (cached != null && !stale) return;
@@ -277,7 +310,7 @@ class HomeController extends ChangeNotifier {
         timetableId: _bellsTimetableIdFallback,
         academicYearId: _selectedYearId,
       );
-      if (_disposed) return;
+      if (myToken != _bellsToken || _disposed) return;
       _bells = fresh;
       scheduleTick.value++;
       _notify();
@@ -442,23 +475,25 @@ class HomeController extends ChangeNotifier {
   );
 
   Future<void> _refreshTeachers() async {
+    final yearId = _selectedYearId;
     _teachersLoading = true;
     profileTick.value++;
     _notify();
     try {
-      final list = await _teachersRepository.refresh(tokens, _selectedYearId);
-      final updated = await _teachersRepository.lastUpdated(_selectedYearId);
-      if (_disposed) return;
+      final list = await _teachersRepository.refresh(tokens, yearId);
+      if (_disposed || yearId != _selectedYearId) return;
+      final updated = await _teachersRepository.lastUpdated(yearId);
+      if (_disposed || yearId != _selectedYearId) return;
       _teachers = list;
       _teachersUpdated = updated;
       _teachersError = null;
     } on SessionExpiredException {
       SessionNotifier.instance.markExpired();
     } catch (e) {
-      if (_disposed) return;
+      if (_disposed || yearId != _selectedYearId) return;
       _teachersError = 'Не удалось обновить: $e';
     } finally {
-      if (!_disposed) {
+      if (!_disposed && yearId == _selectedYearId) {
         _teachersLoading = false;
         profileTick.value++;
         _notify();
@@ -490,9 +525,11 @@ class HomeController extends ChangeNotifier {
     setError: (e) => _gradesError = e,
     revision: gradesTick,
     body: () async {
-      final grades = await _gradesRepository.refresh(tokens, _selectedYearId);
-      final updated = await _gradesRepository.lastUpdated(_selectedYearId);
-      if (_disposed) return;
+      final yearId = _selectedYearId;
+      final grades = await _gradesRepository.refresh(tokens, yearId);
+      if (_disposed || yearId != _selectedYearId) return;
+      final updated = await _gradesRepository.lastUpdated(yearId);
+      if (_disposed || yearId != _selectedYearId) return;
       _grades = grades;
       _gradesUpdated = updated;
     },
@@ -501,12 +538,12 @@ class HomeController extends ChangeNotifier {
   );
 
   /// Отсутствия обновляем только в refreshAll: ручка отдаёт весь год
-  /// разом, а данные меняются редко. При смене недели не дёргаем —
-  /// берём из кэша. При смене года — refresh ниже.
+  /// разом. При смене недели не дёргаем — берём из кэша.
   Future<void> refreshAttendances({bool silent = false}) async {
+    final yearId = _selectedYearId;
     try {
-      final list = await _attendanceRepository.refresh(tokens, _selectedYearId);
-      if (_disposed) return;
+      final list = await _attendanceRepository.refresh(tokens, yearId);
+      if (_disposed || yearId != _selectedYearId) return;
       _attendances = list.isEmpty ? null : list;
       scheduleTick.value++;
       _notify();
@@ -529,71 +566,74 @@ class HomeController extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> refreshSchedule({bool silent = false}) => _runRefresh(
-    setLoading: (v) => _scheduleLoading = v,
-    setError: (e) => _scheduleError = e,
-    revision: scheduleTick,
-    body: () async {
-      await _ensureGroups();
-      if (_groupIds.isEmpty) {
-        throw Exception('не удалось получить список групп ученика');
-      }
-      final monday = _weekStart;
-      final sunday = monday.add(const Duration(days: 6));
-
-      final results = await Future.wait<Object>([
-        _scheduleRepository.refresh(tokens, monday, _selectedYearId, _groupIds),
-        _marksRepository.refresh(
-          tokens,
-          _selectedYearId,
-          from: monday,
-          to: sunday,
-        ),
-      ]);
-      final schedule = results[0] as List<DaySchedule>;
-      final marks = results[1] as List<Mark>;
-
-      final updated = await _scheduleRepository.lastUpdated(
-        monday,
-        _selectedYearId,
-      );
-
-      final newIds = <int>{..._studentTeacherIds};
-      for (final day in schedule) {
-        for (final l in day.lessons) {
-          final tid = l.teacherId;
-          if (tid != null) newIds.add(tid);
+  Future<void> refreshSchedule({bool silent = false}) {
+    final myToken = ++_scheduleToken;
+    return _runRefresh(
+      setLoading: (v) => _scheduleLoading = v,
+      setError: (e) => _scheduleError = e,
+      revision: scheduleTick,
+      body: () async {
+        await _ensureGroups();
+        if (myToken != _scheduleToken || _disposed) return;
+        if (_groupIds.isEmpty) {
+          throw Exception('не удалось получить список групп ученика');
         }
-      }
-      if (newIds.length != _studentTeacherIds.length) {
-        _studentTeacherIds = newIds;
-        await _cache.saveString(_studentTeacherIdsKey, newIds.join(','));
-      }
+        final monday = _weekStart;
+        final sunday = monday.add(const Duration(days: 6));
+        final yearId = _selectedYearId;
 
-      if (_disposed) return;
-      _schedule = schedule;
-      _marks = marks;
-      _scheduleUpdated = updated;
-      await _refreshOverridesMeta();
-    },
-    errorToast: 'Не удалось обновить расписание',
-    silent: silent,
-  );
+        final results = await Future.wait<Object>([
+          _scheduleRepository.refresh(tokens, monday, yearId, _groupIds),
+          _marksRepository.refresh(tokens, yearId, from: monday, to: sunday),
+        ]);
+        if (myToken != _scheduleToken || _disposed) return;
+        if (yearId != _selectedYearId || monday != _weekStart) return;
+
+        final schedule = results[0] as List<DaySchedule>;
+        final marks = results[1] as List<Mark>;
+
+        final updated = await _scheduleRepository.lastUpdated(monday, yearId);
+        if (myToken != _scheduleToken || _disposed) return;
+        if (yearId != _selectedYearId || monday != _weekStart) return;
+
+        final newIds = <int>{..._studentTeacherIds};
+        for (final day in schedule) {
+          for (final l in day.lessons) {
+            final tid = l.teacherId;
+            if (tid != null) newIds.add(tid);
+          }
+        }
+        if (newIds.length != _studentTeacherIds.length) {
+          _studentTeacherIds = newIds;
+          await _cache.saveString(_studentTeacherIdsKey, newIds.join(','));
+        }
+
+        _schedule = schedule;
+        _marks = marks;
+        _scheduleUpdated = updated;
+        await _refreshOverridesMeta();
+      },
+      errorToast: 'Не удалось обновить расписание',
+      silent: silent,
+    );
+  }
 
   Future<void> refreshHomeworks({bool silent = false}) => _runRefresh(
     setLoading: (v) => _homeworksLoading = v,
     setError: (e) => _homeworksError = e,
     revision: homeworksTick,
     body: () async {
+      final yearId = _selectedYearId;
       final range = _academicYearRange(DateTime.now());
       final homeworks = await _homeworkRepository.refresh(
         tokens,
-        _selectedYearId,
+        yearId,
         from: range.$1,
         to: range.$2,
       );
-      final updated = await _homeworkRepository.lastUpdated(_selectedYearId);
-      if (_disposed) return;
+      if (_disposed || yearId != _selectedYearId) return;
+      final updated = await _homeworkRepository.lastUpdated(yearId);
+      if (_disposed || yearId != _selectedYearId) return;
       _homeworks = homeworks;
       _homeworksUpdated = updated;
     },
@@ -770,6 +810,7 @@ class HomeController extends ChangeNotifier {
   // ── Смена недели/года ──────────────────────────────────────────────────
 
   Future<void> changeWeek(DateTime newMonday) async {
+    final myToken = ++_weekToken;
     _weekStart = newMonday;
     _schedule = null;
     _marks = null;
@@ -781,20 +822,23 @@ class HomeController extends ChangeNotifier {
       newMonday,
       _selectedYearId,
     );
+    if (myToken != _weekToken || _disposed) return;
     final updated = await _scheduleRepository.lastUpdated(
       newMonday,
       _selectedYearId,
     );
+    if (myToken != _weekToken || _disposed) return;
     final cachedMarks = await _marksRepository.loadCached(
       _selectedYearId,
       newMonday,
     );
-    if (_disposed) return;
+    if (myToken != _weekToken || _disposed) return;
+
     _schedule = cached;
     _scheduleUpdated = updated;
     _marks = cachedMarks.isEmpty ? null : cachedMarks;
     await _refreshOverridesMeta();
-    if (_disposed) return;
+    if (myToken != _weekToken || _disposed) return;
     scheduleTick.value++;
     _notify();
 
@@ -803,6 +847,7 @@ class HomeController extends ChangeNotifier {
 
   Future<void> changeYear(int yearId) async {
     if (yearId == _selectedYearId) return;
+    final myToken = ++_yearToken;
     _selectedYearId = yearId;
     _grades = null;
     _gradesUpdated = null;
@@ -818,15 +863,23 @@ class HomeController extends ChangeNotifier {
     _notify();
 
     await _cache.saveInt(_selectedYearKey, yearId);
+    if (myToken != _yearToken || _disposed) return;
 
     final cachedGrades = await _gradesRepository.loadCached(yearId);
+    if (myToken != _yearToken || _disposed) return;
     final updatedGrades = await _gradesRepository.lastUpdated(yearId);
+    if (myToken != _yearToken || _disposed) return;
     final cachedHw = await _homeworkRepository.loadCached(yearId);
+    if (myToken != _yearToken || _disposed) return;
     final updatedHw = await _homeworkRepository.lastUpdated(yearId);
+    if (myToken != _yearToken || _disposed) return;
     final cachedTeachers = await _teachersRepository.loadCached(yearId);
+    if (myToken != _yearToken || _disposed) return;
     final updatedTeachers = await _teachersRepository.lastUpdated(yearId);
+    if (myToken != _yearToken || _disposed) return;
     final cachedAtt = await _attendanceRepository.loadCached(yearId);
-    if (_disposed) return;
+    if (myToken != _yearToken || _disposed) return;
+
     _grades = cachedGrades;
     _gradesUpdated = updatedGrades;
     _homeworks = cachedHw;
@@ -841,9 +894,13 @@ class HomeController extends ChangeNotifier {
     _notify();
 
     await _loadBells();
+    if (myToken != _yearToken || _disposed) return;
     await refreshGrades(silent: true);
+    if (myToken != _yearToken || _disposed) return;
     await refreshHomeworks(silent: true);
+    if (myToken != _yearToken || _disposed) return;
     await _refreshTeachers();
+    if (myToken != _yearToken || _disposed) return;
     await refreshAttendances(silent: true);
   }
 

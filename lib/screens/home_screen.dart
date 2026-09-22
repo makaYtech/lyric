@@ -41,6 +41,14 @@ class _HomeScreenState extends State<HomeScreen> {
   final _session = SessionNotifier.instance;
   bool _reauthModalOpen = false;
 
+  /// true — сейчас идёт анимация переключения, начатая тапом по табу.
+  /// Пока true, onPageChanged игнорируется (иначе промежуточные страницы
+  /// перебивают финальный setTabIndex, и бар залипает на неверном табе).
+  bool _animatingToTab = false;
+
+  /// Монотонный счётчик, отменяет предыдущую анимацию при быстрых тычках.
+  int _animationId = 0;
+
   @override
   void initState() {
     super.initState();
@@ -152,13 +160,28 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Переключение таба. Индекс выставляется в контроллере ТОЛЬКО в конце
+  /// анимации — чтобы промежуточные страницы (в т.ч. расписание) не
+  /// перебивали финальный выбор.
   void _onTabSelected(int i) {
     if (i == _controller.tabIndex) return;
-    _pageController.animateToPage(
-      i,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+
+    final myId = ++_animationId;
+    _animatingToTab = true;
+
+    _pageController
+        .animateToPage(
+          i,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        )
+        .whenComplete(() {
+          if (!mounted) return;
+          // Анимацию перебили более свежим тапом — не трогаем таб-индекс.
+          if (myId != _animationId) return;
+          _animatingToTab = false;
+          _controller.setTabIndex(i);
+        });
   }
 
   void _openSettings() {
@@ -193,7 +216,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           body: PageView(
             controller: _pageController,
-            onPageChanged: _controller.setTabIndex,
+            onPageChanged: (i) {
+              // Свайп пользователя: обновляем таб сразу. Тап-инициированные
+              // переключения сюда не доходят — там _animatingToTab == true.
+              if (_animatingToTab) return;
+              _controller.setTabIndex(i);
+            },
             children: [
               ListenableBuilder(
                 listenable: _controller.profileTick,
@@ -226,6 +254,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   grades: _controller.grades,
                   attendances: _controller.attendances,
                   bells: _controller.bells,
+                  isActive: _controller.tabIndex == 2,
+                  autoScrollAlreadyDone: _controller.scheduleAutoScrolledOnce,
+                  onAutoScrollDone: _controller.markScheduleAutoScrolled,
                   isLoading: _controller.scheduleLoading,
                   error: _controller.scheduleErrorForView,
                   weekStart: _controller.weekStart,

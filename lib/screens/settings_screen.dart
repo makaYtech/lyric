@@ -17,7 +17,9 @@ import '../widgets/common/person_avatar.dart';
 import 'developer_screen.dart';
 import 'login_screen.dart';
 import '../core/auth/myschool_token_storage.dart';
+
 import 'package:package_info_plus/package_info_plus.dart';
+
 import '../core/settings/update_prefs.dart';
 import '../services/update/update_service.dart';
 import '../widgets/update/update_sheet.dart';
@@ -43,8 +45,8 @@ class SettingsScreen extends StatelessWidget {
         title: const Text('Выйти из аккаунта?'),
         content: const Text(
           'Токены и все сохранённые данные (оценки, расписание, профиль) '
-              'будут удалены с устройства. Чтобы вернуться, потребуется '
-              'войти в ЭПОС заново.',
+          'будут удалены с устройства. Чтобы вернуться, потребуется '
+          'войти в ЭПОС заново.',
         ),
         actions: [
           TextButton(
@@ -80,7 +82,7 @@ class SettingsScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => LoginScreen(themeController: themeController),
       ),
-          (route) => false,
+      (route) => false,
     );
   }
 
@@ -116,16 +118,16 @@ class SettingsScreen extends StatelessWidget {
       MaterialPageRoute(
         builder: (_) => LoginScreen(themeController: themeController),
       ),
-          (route) => false,
+      (route) => false,
     );
   }
 
   Future<void> _pickLimit(
-      BuildContext context, {
-        required String title,
-        required int current,
-        required ValueChanged<int> onPicked,
-      }) async {
+    BuildContext context, {
+    required String title,
+    required int current,
+    required ValueChanged<int> onPicked,
+  }) async {
     const options = <int>[3, 5, 10, TeacherPrefs.allValue];
     final picked = await showDialog<int>(
       context: context,
@@ -134,9 +136,7 @@ class SettingsScreen extends StatelessWidget {
         children: [
           for (final v in options)
             RadioListTile<int>(
-              title: Text(
-                v == TeacherPrefs.allValue ? 'Показать всё' : '$v',
-              ),
+              title: Text(v == TeacherPrefs.allValue ? 'Показать всё' : '$v'),
               value: v,
               groupValue: current,
               onChanged: (x) => Navigator.of(ctx).pop(x),
@@ -195,47 +195,56 @@ class SettingsScreen extends StatelessWidget {
   Future<void> _checkUpdates(BuildContext context) async {
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(const SnackBar(
-      content: Text('Проверяем обновления…'),
-      behavior: SnackBarBehavior.floating,
-      duration: Duration(seconds: 1),
-    ));
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Проверяем обновления…'),
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 1),
+      ),
+    );
 
-    final check =
-    await UpdateService.instance.check(UpdatePrefs.channel.value);
+    final check = await UpdateService.instance.check(UpdatePrefs.channel.value);
     if (!context.mounted) return;
 
     messenger.hideCurrentSnackBar();
 
     switch (check.result) {
       case UpdateCheckResult.upToDate:
-        messenger.showSnackBar(SnackBar(
-          content: Text(
-            'Установлена последняя версия '
-                '(${check.currentVersion})',
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Установлена последняя версия '
+              '(${check.currentVersion})',
+            ),
+            behavior: SnackBarBehavior.floating,
           ),
-          behavior: SnackBarBehavior.floating,
-        ));
+        );
       case UpdateCheckResult.available:
         final ok = await showUpdateSheet(context, check.info!);
         if (!ok && context.mounted) {
-          messenger.showSnackBar(const SnackBar(
-            content: Text('Обновление отложено — можно вернуться сюда позже'),
-            behavior: SnackBarBehavior.floating,
-          ));
+          messenger.showSnackBar(
+            const SnackBar(
+              content: Text('Обновление отложено — можно вернуться сюда позже'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
       case UpdateCheckResult.networkError:
-        messenger.showSnackBar(SnackBar(
-          content: Text(
-            'Не удалось проверить: ${check.error ?? "нет соединения"}',
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Не удалось проверить: ${check.error ?? "нет соединения"}',
+            ),
+            behavior: SnackBarBehavior.floating,
           ),
-          behavior: SnackBarBehavior.floating,
-        ));
+        );
       case UpdateCheckResult.parseError:
-        messenger.showSnackBar(SnackBar(
-          content: Text('Ошибка разбора update.json: ${check.error}'),
-          behavior: SnackBarBehavior.floating,
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Ошибка разбора update.json: ${check.error}'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
     }
   }
 
@@ -267,7 +276,7 @@ class SettingsScreen extends StatelessWidget {
         title: const Text('Сбросить аватар ученика?'),
         content: const Text(
           'Аватар вернётся к инициалам. Файл на устройстве '
-              'не тронем — только удалим ссылку в приложении.',
+          'не тронем — только удалим ссылку в приложении.',
         ),
         actions: [
           TextButton(
@@ -346,7 +355,7 @@ class SettingsScreen extends StatelessWidget {
           title: const Text('Очистить аватары всех учителей?'),
           content: Text(
             'Сбросится ${list.length} ${_pluralTeachers(list.length)}. '
-                'Файлы на устройстве не удаляются — только ссылки в приложении.',
+            'Файлы на устройстве не удаляются — только ссылки в приложении.',
           ),
           actions: [
             TextButton(
@@ -397,8 +406,8 @@ class SettingsScreen extends StatelessWidget {
         title: const Text('Для разработчика'),
         content: const Text(
           'Какие-либо действия на этой вкладке могут привести к поломке '
-              'работоспособности приложения. Настоятельно не рекомендуется '
-              'трогать без нужды.',
+          'работоспособности приложения. Настоятельно не рекомендуется '
+          'трогать без нужды.',
         ),
         actions: [
           TextButton(
@@ -472,7 +481,7 @@ class SettingsScreen extends StatelessWidget {
                 title: const Text('Как в системе'),
                 subtitle: const Text(
                   'Следует теме устройства. На Android 12+ подхватывает '
-                      'акцентные цвета твоей темы (Material You), если система их отдаёт',
+                  'акцентные цвета твоей темы (Material You), если система их отдаёт',
                 ),
                 value: ThemeMode.system,
                 groupValue: themeController.mode,
@@ -492,7 +501,7 @@ class SettingsScreen extends StatelessWidget {
                   title: const Text('Объединять уроки в пары'),
                   subtitle: const Text(
                     'Если два одинаковых урока подряд (тот же предмет, '
-                        'учитель и кабинет) — показывать их одной карточкой',
+                    'учитель и кабинет) — показывать их одной карточкой',
                   ),
                   value: merge,
                   onChanged: SchedulePrefs.setMergePairs,
@@ -504,8 +513,8 @@ class SettingsScreen extends StatelessWidget {
                   title: const Text('Показывать мои правки'),
                   subtitle: const Text(
                     'Выключи, чтобы увидеть расписание строго как на '
-                        'сервере. Правки не удалятся и вернутся при '
-                        'включении обратно',
+                    'сервере. Правки не удалятся и вернутся при '
+                    'включении обратно',
                   ),
                   value: value,
                   onChanged: SchedulePrefs.setShowOverrides,
@@ -517,7 +526,7 @@ class SettingsScreen extends StatelessWidget {
                   title: const Text('Показывать окна'),
                   subtitle: const Text(
                     'Между уроками с большим перерывом показывается '
-                        'карточка «Окно»',
+                    'карточка «Окно»',
                   ),
                   value: value,
                   onChanged: SchedulePrefs.setShowGaps,
@@ -531,6 +540,19 @@ class SettingsScreen extends StatelessWidget {
                   enabled: SchedulePrefs.showGaps.value,
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => _pickGapThreshold(context),
+                ),
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: SchedulePrefs.autoScrollToToday,
+                builder: (context, value, _) => SwitchListTile(
+                  title: const Text('Перелистывать на текущий день'),
+                  subtitle: const Text(
+                    'При первом заходе на вкладку «Расписание» прокручивать '
+                    'к сегодняшнему дню. При повторных заходах позиция '
+                    'сохраняется',
+                  ),
+                  value: value,
+                  onChanged: SchedulePrefs.setAutoScrollToToday,
                 ),
               ),
               const Divider(height: 32),
@@ -578,8 +600,8 @@ class SettingsScreen extends StatelessWidget {
                   title: const Text('Только мои учителя'),
                   subtitle: const Text(
                     'Показывать только тех, кто ведёт уроки у этого '
-                        'ученика. Список строится по расписанию, '
-                        'сохранённому на устройстве',
+                    'ученика. Список строится по расписанию, '
+                    'сохранённому на устройстве',
                   ),
                   value: value,
                   onChanged: TeacherPrefs.setOnlyStudentTeachers,
@@ -618,8 +640,8 @@ class SettingsScreen extends StatelessWidget {
                   title: const Text('Показывать старые кабинеты'),
                   subtitle: const Text(
                     'Учителя со временем меняли кабинеты. По умолчанию '
-                        'виден только текущий, где он ответственный. Включи, '
-                        'чтобы показать все кабинеты из истории',
+                    'виден только текущий, где он ответственный. Включи, '
+                    'чтобы показать все кабинеты из истории',
                   ),
                   value: value,
                   onChanged: TeacherPrefs.setShowOldRooms,
@@ -660,9 +682,7 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 title: Text(
                   'Выйти из аккаунта',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
                 onTap: () => _logout(context),
               ),
@@ -708,7 +728,7 @@ class SettingsScreen extends StatelessWidget {
                   subtitle: Text(
                     snap.hasData
                         ? '${snap.data!.version} '
-                        '(сборка ${snap.data!.buildNumber})'
+                              '(сборка ${snap.data!.buildNumber})'
                         : '—',
                   ),
                 ),

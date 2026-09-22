@@ -26,6 +26,20 @@ class ScheduleView extends StatefulWidget {
   final List<Attendance>? attendances;
   final BellsTimetable? bells;
 
+  /// true — вкладка расписания сейчас показана.
+  final bool isActive;
+
+  /// true — автоскролл на сегодня уже был в этом сеансе приложения.
+  /// Флаг живёт в HomeController (переживает пересоздание виджета),
+  /// поэтому после ручного скролла и ухода на другую вкладку он
+  /// остаётся выставленным.
+  final bool autoScrollAlreadyDone;
+
+  /// Колбэк «автоскролл выполнен (или не нужен)». Вызывается один раз,
+  /// когда мы определились: либо прокрутили, либо сегодня нет в
+  /// расписании, либо пользователь выключил настройку.
+  final VoidCallback? onAutoScrollDone;
+
   final bool isLoading;
   final String? error;
   final DateTime weekStart;
@@ -35,7 +49,6 @@ class ScheduleView extends StatefulWidget {
   final Future<List<int>> Function(DateTime date, List<int> lessonIds)?
   onDeleteLessons;
 
-  /// Пакетный перенос уроков в конкретные времена (drop на окно).
   final Future<List<int>> Function(
     DateTime date,
     List<({int lessonId, String startTime, String endTime})> moves,
@@ -70,6 +83,9 @@ class ScheduleView extends StatefulWidget {
     this.grades,
     this.attendances,
     this.bells,
+    this.isActive = true,
+    this.autoScrollAlreadyDone = false,
+    this.onAutoScrollDone,
     required this.isLoading,
     required this.error,
     required this.weekStart,
@@ -93,7 +109,13 @@ class ScheduleView extends StatefulWidget {
   State<ScheduleView> createState() => _ScheduleViewState();
 }
 
-class _ScheduleViewState extends State<ScheduleView> {
+class _ScheduleViewState extends State<ScheduleView>
+    with AutomaticKeepAliveClientMixin {
+  /// Не выгружаемся из PageView при уходе с вкладки — сохраняем позицию
+  /// скролла и выбранный день.
+  @override
+  bool get wantKeepAlive => true;
+
   final _scrollController = ScrollController();
   final _listKey = GlobalKey();
   final _dayKeys = <GlobalKey>[];
@@ -124,6 +146,7 @@ class _ScheduleViewState extends State<ScheduleView> {
     _attendanceLookup = LessonAttendanceLookup.fromAttendances(
       widget.attendances,
     );
+    if (widget.isActive && !widget.autoScrollAlreadyDone) _tryAutoScroll();
   }
 
   @override
@@ -144,6 +167,7 @@ class _ScheduleViewState extends State<ScheduleView> {
         widget.attendances,
       );
     }
+    if (widget.isActive && !widget.autoScrollAlreadyDone) _tryAutoScroll();
   }
 
   @override
@@ -151,6 +175,40 @@ class _ScheduleViewState extends State<ScheduleView> {
     _autoScrollTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _tryAutoScroll() {
+    if (widget.autoScrollAlreadyDone) return;
+
+    // Настройку выключили — фиксируем «решено» и больше не дёргаем.
+    if (!SchedulePrefs.autoScrollToToday.value) {
+      widget.onAutoScrollDone?.call();
+      return;
+    }
+
+    final schedule = widget.schedule;
+    // Данных ещё нет — попробуем на следующем апдейте. Флаг НЕ выставляем.
+    if (schedule == null || schedule.isEmpty) return;
+
+    final now = DateTime.now();
+    final targetIndex = schedule.indexWhere(
+      (d) =>
+          d.date.year == now.year &&
+          d.date.month == now.month &&
+          d.date.day == now.day,
+    );
+
+    // Данные есть — фиксируем «решено». Даже если сегодня нет в
+    // расписании, повторно скроллить не нужно.
+    widget.onAutoScrollDone?.call();
+
+    if (targetIndex < 0) return;
+    if (targetIndex == _activeDayIndex && _pinnedIndex == null) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToDay(targetIndex);
+    });
   }
 
   void _handleDragGlobalY(double globalY) {
@@ -396,8 +454,6 @@ class _ScheduleViewState extends State<ScheduleView> {
     );
   }
 
-  /// Урок/пара брошены на окно. Предлагаем слоты из bells, которые
-  /// целиком попадают в это окно, и пишем move-override.
   Future<void> _handleDropOnGap(
     DateTime day,
     Lesson dragged,
@@ -421,7 +477,6 @@ class _ScheduleViewState extends State<ScheduleView> {
       gap.endTime,
     );
 
-    // ── Пара ─────────────────────────────────────────────────────────────
     if (dragged.isPaired && ids.length >= 2) {
       final pairs = <({Bell a, Bell b})>[];
       for (var i = 0; i + 1 < slots.length; i++) {
@@ -479,7 +534,6 @@ class _ScheduleViewState extends State<ScheduleView> {
       return;
     }
 
-    // ── Одиночный урок ───────────────────────────────────────────────────
     if (slots.isEmpty) {
       _showSnack('В этом окне нет слотов, куда можно поставить урок');
       return;
@@ -911,6 +965,11 @@ class _ScheduleViewState extends State<ScheduleView> {
       ..addAll(List.generate(count, (_) => GlobalKey()));
   }
 
+  /// Пролистывает к дню [index] внутри внутреннего списка.
+  ///
+  /// ВАЖНО: не используем Scrollable.ensureVisible — он рекурсивно
+  /// двигает ВСЕ Scrollable-предки, включая внешний PageView, из-за
+  /// чего переход на вкладку расписания «перекидывал» с других вкладок.
   Future<void> _scrollToDay(int index) async {
     if (index < 0 || index >= _dayKeys.length) return;
     if (index == _activeDayIndex && _pinnedIndex == null) return;
@@ -919,18 +978,43 @@ class _ScheduleViewState extends State<ScheduleView> {
     setState(() => _activeDayIndex = index);
 
     await WidgetsBinding.instance.endOfFrame;
-    final ctx = _dayKeys[index].currentContext;
-    if (ctx != null) {
-      await Scrollable.ensureVisible(
-        ctx,
-        duration: const Duration(milliseconds: 350),
-        curve: Curves.easeInOut,
-        alignment: 0.0,
-      );
+    if (!mounted) return;
+    if (!_scrollController.hasClients) {
+      _pinnedIndex = null;
+      return;
     }
 
+    final dayCtx = _dayKeys[index].currentContext;
+    final listCtx = _listKey.currentContext;
+    if (dayCtx == null || listCtx == null) {
+      _pinnedIndex = null;
+      return;
+    }
+
+    final dayBox = dayCtx.findRenderObject() as RenderBox?;
+    final listBox = listCtx.findRenderObject() as RenderBox?;
+    if (dayBox == null || listBox == null) {
+      _pinnedIndex = null;
+      return;
+    }
+
+    final dayTop = dayBox.localToGlobal(Offset.zero).dy;
+    final listTop = listBox.localToGlobal(Offset.zero).dy;
+    final delta = dayTop - listTop;
+
+    final target = (_scrollController.offset + delta).clamp(
+      _scrollController.position.minScrollExtent,
+      _scrollController.position.maxScrollExtent,
+    );
+
+    await _scrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeInOut,
+    );
+
     await Future.delayed(const Duration(milliseconds: 200));
-    _pinnedIndex = null;
+    if (mounted) _pinnedIndex = null;
   }
 
   bool _onScroll(ScrollNotification notification) {
@@ -1009,6 +1093,7 @@ class _ScheduleViewState extends State<ScheduleView> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context); // для AutomaticKeepAliveClientMixin
     final schedule = widget.schedule ?? const <DaySchedule>[];
     _ensureKeys(schedule.length);
 
@@ -1269,12 +1354,17 @@ class _DayStrip extends StatelessWidget {
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 
+  static bool _isToday(DateTime d) {
+    final now = DateTime.now();
+    return d.year == now.year && d.month == now.month && d.day == now.day;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return SizedBox(
-      height: 52,
+      height: 68,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -1283,29 +1373,76 @@ class _DayStrip extends StatelessWidget {
         itemBuilder: (_, i) {
           final d = days[i];
           final selected = i == activeIndex;
+          final isToday = _isToday(d.date);
           final hasLessons = d.lessons.isNotEmpty;
           final hasOverrides = daysWithOverrides.contains(_iso(d.date));
-          final label = '${kWeekdaysShort[d.date.weekday - 1]} ${d.date.day}';
+
+          final weekday = kWeekdaysShort[d.date.weekday - 1];
+          final dayMonth =
+              '${d.date.day}.${d.date.month.toString().padLeft(2, '0')}';
+
+          final onColor = selected
+              ? theme.colorScheme.onSecondaryContainer
+              : (hasLessons
+                    ? theme.colorScheme.onSurface
+                    : theme.colorScheme.onSurfaceVariant);
+          final subColor = selected
+              ? theme.colorScheme.onSecondaryContainer
+              : theme.colorScheme.onSurfaceVariant;
 
           final chip = ChoiceChip(
-            label: Text(label),
+            label: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  weekday,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: subColor,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    height: 1.0,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  dayMonth,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: onColor,
+                    fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                    height: 1.0,
+                  ),
+                ),
+                if (isToday) ...[
+                  const SizedBox(height: 3),
+                  Container(
+                    width: 4,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: selected
+                          ? theme.colorScheme.onSecondaryContainer
+                          : theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
             selected: selected,
             showCheckmark: false,
             onSelected: (_) => onTap(i),
-            labelStyle: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-              color: selected
-                  ? theme.colorScheme.onSecondaryContainer
-                  : (hasLessons
-                        ? theme.colorScheme.onSurface
-                        : theme.colorScheme.onSurfaceVariant),
-            ),
             selectedColor: theme.colorScheme.secondaryContainer,
             backgroundColor: theme.colorScheme.surface,
+            elevation: 0,
+            pressElevation: 0,
+            shadowColor: Colors.transparent,
+            surfaceTintColor: Colors.transparent,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             side: BorderSide(
               color: selected
                   ? theme.colorScheme.secondary
-                  : theme.colorScheme.outlineVariant,
+                  : (isToday
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.outlineVariant),
             ),
           );
 
@@ -1316,7 +1453,7 @@ class _DayStrip extends StatelessWidget {
             children: [
               chip,
               Positioned(
-                top: 4,
+                top: 2,
                 right: 6,
                 child: Container(
                   width: 6,

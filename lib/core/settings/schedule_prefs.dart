@@ -10,6 +10,7 @@ class SchedulePrefs {
   static const _showOverridesKey = 'schedule_show_overrides';
   static const _showGapsKey = 'schedule_show_gaps';
   static const _gapThresholdKey = 'schedule_gap_threshold_min';
+  static const _autoScrollToTodayKey = 'schedule_auto_scroll_to_today';
   static final CacheService _cache = CacheService();
 
   /// Минимальная длина разрыва между уроками, при которой он ещё
@@ -29,8 +30,16 @@ class SchedulePrefs {
   static final ValueNotifier<bool> showGaps = ValueNotifier<bool>(true);
 
   /// Порог в минутах. Разрыв > порога → окно.
-  static final ValueNotifier<int> gapThresholdMinutes =
-  ValueNotifier<int>(defaultGapThresholdMin);
+  static final ValueNotifier<int> gapThresholdMinutes = ValueNotifier<int>(
+    defaultGapThresholdMin,
+  );
+
+  /// При первом заходе на вкладку «Расписание» прокручивать к текущему
+  /// дню. Срабатывает только один раз за жизнь экрана — при повторных
+  /// переключениях вкладки позиция сохраняется.
+  static final ValueNotifier<bool> autoScrollToToday = ValueNotifier<bool>(
+    true,
+  );
 
   static Future<void> load() async {
     mergePairs.value = (await _cache.loadInt(_mergePairsKey)) == 1;
@@ -40,6 +49,8 @@ class SchedulePrefs {
     showGaps.value = g == null ? true : g == 1;
     final t = await _cache.loadInt(_gapThresholdKey);
     gapThresholdMinutes.value = t ?? defaultGapThresholdMin;
+    final a = await _cache.loadInt(_autoScrollToTodayKey);
+    autoScrollToToday.value = a == null ? true : a == 1;
   }
 
   static Future<void> setMergePairs(bool value) async {
@@ -63,5 +74,11 @@ class SchedulePrefs {
     if (gapThresholdMinutes.value == value) return;
     gapThresholdMinutes.value = value;
     await _cache.saveInt(_gapThresholdKey, value);
+  }
+
+  static Future<void> setAutoScrollToToday(bool value) async {
+    if (autoScrollToToday.value == value) return;
+    autoScrollToToday.value = value;
+    await _cache.saveInt(_autoScrollToTodayKey, value ? 1 : 0);
   }
 }
