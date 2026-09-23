@@ -30,11 +30,10 @@ enum RenewOutcome {
 /// Два режима refresh, переключаются по EposSession.deviceToken:
 ///
 ///   device-token (новый):
-///     Один HTTP — GET /authenticate с заголовком token=<UUID>.
-///     Никакого WebView. См. _renewViaDeviceToken.
+///     Трёхшаговый exchange — GET /authenticate, POST student_profile,
+///     GET loginEom. См. DeviceTokenAuthService.exchange.
 ///
-///   legacy OAuth (старый, оставлен пока флаг AuthConfig.useDeviceTokenFlow
-///   может быть выключен):
+///   legacy OAuth (старый):
 ///     1. POST /token, grant_type=refresh_token (чистый Dart).
 ///     2. Phase C: скрытый WebView на edu-epos/authenticate/oauth.
 ///
@@ -106,15 +105,16 @@ class AuthCoordinator {
   // ── Device-token flow ──────────────────────────────────────────────────
 
   Future<RenewOutcome> _renewViaDeviceToken(EposSession current) async {
-    final result = await DeviceTokenAuthService.instance
-        .exchange(current.deviceToken!);
+    final result = await DeviceTokenAuthService.instance.exchange(
+      current.deviceToken!,
+    );
 
     final payload = result.payload;
     if (payload != null) {
       final updated = current.copyWith(
-        authToken: payload.authToken,
+        cookies: payload.cookies,
         profileId: payload.profileId,
-        longToken: payload.longToken,
+        longToken: payload.cookies['long_token'],
       );
       _session = updated;
       await _storage.save(updated);
@@ -135,9 +135,7 @@ class AuthCoordinator {
     // Шаг 1: офлайн-ключ, чистый REST.
     final TokenSet tokens;
     try {
-      tokens = await _oauth
-          .refresh(rt)
-          .timeout(const Duration(seconds: 20));
+      tokens = await _oauth.refresh(rt).timeout(const Duration(seconds: 20));
     } on EposOAuthAuthDeadException {
       return RenewOutcome.authDead;
     } catch (_) {
@@ -219,6 +217,7 @@ class AuthCoordinator {
       authToken: authToken,
       profileId: profileId,
       deviceToken: base.deviceToken,
+      cookies: cookies,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
       accessExpiresAt: tokens.accessExpiresAt,
@@ -243,8 +242,7 @@ class AuthCoordinator {
 
   Future<Map<String, String>> _readCookies(WebViewController webView) async {
     try {
-      final raw =
-      await webView.runJavaScriptReturningResult('document.cookie');
+      final raw = await webView.runJavaScriptReturningResult('document.cookie');
       final str = raw.toString().replaceAll(RegExp(r'^"|"$'), '');
       final out = <String, String>{};
       for (final pair in str.split('; ')) {

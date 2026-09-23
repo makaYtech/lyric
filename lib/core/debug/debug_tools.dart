@@ -9,6 +9,7 @@ import '../auth/session_notifier.dart';
 import '../auth/session_refresh_service.dart';
 import '../cache/cache_service.dart';
 import '../db/app_database.dart';
+import '../network/epos_http_client.dart';
 import '../settings/avatar_storage.dart';
 
 /// Снимок текущего состояния — чтобы UI показал одним куском и не
@@ -25,6 +26,9 @@ class DebugSnapshot {
   });
 
   bool get hasEposSession => epos != null;
+
+  /// Все cookies активной сессии. Пустая мапа, если сессии нет.
+  Map<String, String> get cookies => epos?.cookies ?? const {};
 }
 
 /// Утилиты для отладки: сброс отдельных частей состояния приложения.
@@ -33,6 +37,9 @@ class DebugSnapshot {
 class DebugTools {
   DebugTools._();
   static final instance = DebugTools._();
+
+  static const _eposBase = 'https://edu-epos.permkrai.ru';
+  static const _userAgent = 'okhttp/4.12.0';
 
   final _cache = CacheService();
 
@@ -49,73 +56,112 @@ class DebugTools {
     );
   }
 
-  // ── Сессия ЭПОС: точечные сбросы ──────────────────────────────────────
+  // ── Отравление (испортить значение, сохранив ключ) ────────────────────
 
+  /// Отравить одну cookie. Значение заменяется на маркер с timestamp,
+  /// чтобы в UI сразу было видно, что это тест.
+  Future<void> poisonCookie(String name) async {
+    final s = await SessionRefreshService.instance.load();
+    if (s == null) return;
+    final updated = Map<String, String>.from(s.cookies);
+    updated[name] = 'POISONED_${DateTime.now().millisecondsSinceEpoch}';
+    final next = s.copyWith(cookies: updated);
+    await _save(next);
+  }
+
+  /// Отравить device_token (UUID из ESIA). GET /authenticate на такой
+  /// UUID вернёт 4xx → renew вернёт authDead → ReauthSheet.
+  Future<void> poisonDeviceToken() async {
+    final s = await SessionRefreshService.instance.load();
+    if (s == null) return;
+    final next = s.copyWith(
+      deviceToken: 'POISONED_${DateTime.now().millisecondsSinceEpoch}',
+    );
+    await _save(next);
+  }
+
+  // ── Сброс (удалить значение) ──────────────────────────────────────────
+
+  /// Убрать device_token. Сессия останется живой, пока cookies валидны,
+  /// но первый же 401 приведёт к authDead (renew не сможет обновиться).
   Future<void> clearDeviceToken() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
-    final updated = EposSession(
-      authToken: s.authToken,
-      profileId: s.profileId,
-      deviceToken: null,
-      accessToken: s.accessToken,
-      refreshToken: s.refreshToken,
-      accessExpiresAt: s.accessExpiresAt,
-      longToken: s.longToken,
-      userId: s.userId,
-    );
-    await SessionRefreshService.instance.save(updated);
-    AuthCoordinator.instance.setSession(updated);
-    SessionNotifier.instance.reset();
+    final next = s.copyWith(deviceToken: '');
+    await _save(next);
   }
 
-  Future<void> poisonAuthToken() async {
-    final s = await SessionRefreshService.instance.load();
-    if (s == null) return;
-    final updated = s.copyWith(authToken: 'INVALID_FOR_TEST');
-    await SessionRefreshService.instance.save(updated);
-    AuthCoordinator.instance.setSession(updated);
-    SessionNotifier.instance.reset();
-  }
-
+  /// Убрать OAuth-пару (access + refresh + expires). Для legacy-сессий
+  /// сломает refresh, для device-token — безвредно.
   Future<void> clearOauthPair() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
-    final updated = EposSession(
+    final next = EposSession(
       authToken: s.authToken,
       profileId: s.profileId,
       deviceToken: s.deviceToken,
+      cookies: s.cookies,
       accessToken: null,
       refreshToken: null,
       accessExpiresAt: null,
       longToken: s.longToken,
       userId: s.userId,
     );
-    await SessionRefreshService.instance.save(updated);
-    AuthCoordinator.instance.setSession(updated);
+    await _save(next);
   }
 
+  /// Убрать long_token. Для API он балласт, так что эффекта не ждём.
   Future<void> clearLongToken() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
-    final updated = EposSession(
+    final next = EposSession(
       authToken: s.authToken,
       profileId: s.profileId,
       deviceToken: s.deviceToken,
+      cookies: s.cookies,
       accessToken: s.accessToken,
       refreshToken: s.refreshToken,
       accessExpiresAt: s.accessExpiresAt,
       longToken: null,
       userId: s.userId,
     );
-    await SessionRefreshService.instance.save(updated);
-    AuthCoordinator.instance.setSession(updated);
+    await _save(next);
   }
 
+  /// Полный снос сессии ЭПОС из памяти и защищённого хранилища.
   Future<void> clearWholeEposSession() async {
     AuthCoordinator.instance.clear();
     await SessionRefreshService.instance.clear();
     SessionNotifier.instance.reset();
+  }
+
+  // ── Прямой запрос в обход клиента ─────────────────────────────────────
+
+  /// Отправить GET к ЭПОСу с текущими cookies, минуя ApiClient и
+  /// AuthCoordinator. Renew не сработает даже на 401/403 — вернётся
+  /// чистый ответ сервера. Нужно для проверки гипотез про WAF и
+  /// отдельные cookies.
+  Future<String> probe(String path) async {
+    final s = await SessionRefreshService.instance.load();
+    if (s == null) return 'Нет сессии';
+    final client = await createEposRawHttpClient();
+    try {
+      final req = await client.getUrl(Uri.parse('$_eposBase$path'));
+      if (s.cookieHeader.isNotEmpty) {
+        req.headers.set('Cookie', s.cookieHeader);
+      } else {
+        req.headers.set('Auth-Token', s.authToken);
+        req.headers.set('Profile-Id', s.profileId);
+      }
+      req.headers.set('User-Agent', _userAgent);
+      final resp = await req.close().timeout(const Duration(seconds: 10));
+      await resp.drain<void>();
+      return 'HTTP ${resp.statusCode}';
+    } catch (e) {
+      return 'Ошибка: $e';
+    } finally {
+      client.close(force: true);
+    }
   }
 
   // ── device_key ─────────────────────────────────────────────────────────
@@ -203,6 +249,18 @@ class DebugTools {
     if (alsoDeviceKey) {
       await DeviceTokenAuthService.instance.resetDeviceKey();
     }
+    SessionNotifier.instance.reset();
+  }
+
+  // ── Внутреннее ─────────────────────────────────────────────────────────
+
+  /// Общая обвязка для сохранения изменённой сессии: пишем в storage,
+  /// обновляем in-memory состояние AuthCoordinator, снимаем sticky-флаг
+  /// «сессия истекла» (иначе тестовая отравленная сессия не даст UI
+  /// показать актуальную картину).
+  Future<void> _save(EposSession next) async {
+    await SessionRefreshService.instance.save(next);
+    AuthCoordinator.instance.setSession(next);
     SessionNotifier.instance.reset();
   }
 }

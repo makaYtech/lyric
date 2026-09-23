@@ -20,10 +20,9 @@ class AttachmentOpenResult {
 /// Скачивает файлы ДЗ из ЭПОСа и открывает их системным приложением
 /// (PDF-вьюер, галерея, офисный пакет — что найдётся).
 ///
-/// Файлы лежат на том же домене, что и API, и, судя по всему, тоже
-/// требуют Auth-Token — поэтому качаем через createEposHttpClient()
-/// (он один умеет ходить на edu-epos.permkrai.ru) и подкладываем
-/// те же заголовки, что и в ApiClient.
+/// Файлы лежат на том же домене, что и API, и требуют ту же
+/// аутентификацию — cookies. Качаем через createEposHttpClient() и
+/// подкладываем те же заголовки, что и в ApiClient.
 ///
 /// Сессия передаётся снаружи через setSession(): кнопка живёт глубоко
 /// в дереве, тащить токены через конструкторы всех виджетов — лишнее.
@@ -32,15 +31,17 @@ class AttachmentService {
   AttachmentService._();
   static final instance = AttachmentService._();
 
+  static const _userAgent = 'okhttp/4.12.0';
+
   EposSession? _session;
   void setSession(EposSession? session) => _session = session;
 
   static const _subdir = 'attachments';
 
   Future<AttachmentOpenResult> open(
-      HomeworkAttachment att, {
-        void Function(double progress)? onProgress,
-      }) async {
+    HomeworkAttachment att, {
+    void Function(double progress)? onProgress,
+  }) async {
     if (att.url.isEmpty) {
       return const AttachmentOpenResult.failure('Пустая ссылка на файл');
     }
@@ -88,21 +89,27 @@ class AttachmentService {
   }
 
   Future<bool> _download(
-      String url,
-      File dest,
-      EposSession session,
-      void Function(double)? onProgress,
-      ) async {
+    String url,
+    File dest,
+    EposSession session,
+    void Function(double)? onProgress,
+  ) async {
     final client = await createEposHttpClient();
     IOSink? sink;
     var ok = false;
     try {
-      final req = http.Request('GET', Uri.parse(url))
-        ..headers.addAll({
-          'Auth-Token': session.authToken,
-          'Profile-Id': session.profileId,
-          'Accept': '*/*',
-        });
+      final headers = <String, String>{
+        'Accept': '*/*',
+        'User-Agent': _userAgent,
+      };
+      if (session.cookieHeader.isNotEmpty) {
+        headers['Cookie'] = session.cookieHeader;
+      } else {
+        headers['Auth-Token'] = session.authToken;
+        headers['Profile-Id'] = session.profileId;
+      }
+
+      final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);
 
       final resp = await client.send(req);
       if (resp.statusCode != 200) return false;

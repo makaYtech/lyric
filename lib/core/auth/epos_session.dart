@@ -2,25 +2,30 @@ import '../../services/auth_service.dart';
 
 /// Полная сессия ЭПОСа. Заменяет связку «EposTokens + отдельные поля».
 ///
-/// Разделяем три уровня:
-///   - auth_token/profile_id  — то, что видят все репозитории через
-///                              EposTokens (совместимость не ломаем).
-///   - access_token           — для OAuth-операций (refresh, exchange).
-///   - refresh_token          — offline, бессрочный. Хранится в
-///                              защищённом хранилище.
+/// Основной механизм аутентификации — cookies (aid, auth_token,
+/// long_token, profile_id, is_auth, from_sudir, RSESSION, waf_cookie,
+/// SERVERID), которые сервер устанавливает в /authenticate и
+/// финализирующих запросах. Заголовки Auth-Token/Profile-Id —
+/// fallback для legacy OAuth-сессий.
 ///
-/// С появлением device-token-флоу (см. DeviceTokenAuthService) OAuth-поля
-/// стали опциональными: device-token-сессия их не имеет вообще. Что
-/// именно на руках — определяется наличием [deviceToken]:
+/// Что именно на руках — определяется наличием [deviceToken]:
 ///   deviceToken != null → новый flow, refresh = GET /authenticate
 ///   deviceToken == null → старый flow, refresh = OAuth refresh_token
 class EposSession {
-  /// Для запросов к /core/api и /jersey/api.
+  /// UUID из diaryperm://redirect?token=...
+  /// Нужен для POST /authenticate/student_profile (в body auth_token
+  /// идёт ИМЕННО он, а не hex из cookie).
   final String authToken;
+
   final String profileId;
 
-  /// Долгоживущий UUID из diaryperm://redirect?token=.
+  /// UUID, который уходит в заголовке token при GET /authenticate.
   final String? deviceToken;
+
+  /// Все cookies, установленные сервером. Ключ — имя, значение — значение.
+  /// Формат хранения — Map, потому что при запросах порядок не важен,
+  /// а обновление из Set-Cookie удобнее делать по имени.
+  final Map<String, String> cookies;
 
   /// OAuth-токены (client_id=auth). Для device-token-сессии — null.
   final String? accessToken;
@@ -35,6 +40,7 @@ class EposSession {
     required this.authToken,
     required this.profileId,
     this.deviceToken,
+    this.cookies = const {},
     this.accessToken,
     this.refreshToken,
     this.accessExpiresAt,
@@ -42,9 +48,17 @@ class EposSession {
     this.userId,
   });
 
-  /// Совместимость со старым кодом.
-  EposTokens get tokens =>
-      EposTokens(authToken: authToken, profileId: profileId);
+  /// "aid=14; auth_token=...; profile_id=..." — то, что кладётся
+  /// в заголовок Cookie.
+  String get cookieHeader =>
+      cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
+
+  /// Совместимость со старым кодом (ApiClient, сервисы).
+  EposTokens get tokens => EposTokens(
+    authToken: authToken,
+    profileId: profileId,
+    cookieHeader: cookieHeader,
+  );
 
   /// Device-token-сессию не обновляем проактивно: её срок неизвестен.
   /// Ловим 401 от API — тогда AuthCoordinator сходит за свежими cookie.
@@ -61,6 +75,7 @@ class EposSession {
     String? authToken,
     String? profileId,
     String? deviceToken,
+    Map<String, String>? cookies,
     String? accessToken,
     String? refreshToken,
     DateTime? accessExpiresAt,
@@ -70,6 +85,7 @@ class EposSession {
     authToken: authToken ?? this.authToken,
     profileId: profileId ?? this.profileId,
     deviceToken: deviceToken ?? this.deviceToken,
+    cookies: cookies ?? this.cookies,
     accessToken: accessToken ?? this.accessToken,
     refreshToken: refreshToken ?? this.refreshToken,
     accessExpiresAt: accessExpiresAt ?? this.accessExpiresAt,
@@ -81,6 +97,7 @@ class EposSession {
     'auth_token': authToken,
     'profile_id': profileId,
     'device_token': deviceToken,
+    'cookies': cookies,
     'access_token': accessToken,
     'refresh_token': refreshToken,
     'access_expires_at': accessExpiresAt?.toIso8601String(),
@@ -90,14 +107,21 @@ class EposSession {
 
   factory EposSession.fromJson(Map<String, dynamic> j) {
     final expRaw = j['access_expires_at'];
+    final rawCookies = j['cookies'];
+    final cookies = <String, String>{};
+    if (rawCookies is Map) {
+      rawCookies.forEach((k, v) {
+        if (k is String && v is String) cookies[k] = v;
+      });
+    }
     return EposSession(
       authToken: j['auth_token'] as String,
       profileId: j['profile_id'] as String,
       deviceToken: j['device_token'] as String?,
+      cookies: cookies,
       accessToken: j['access_token'] as String?,
       refreshToken: j['refresh_token'] as String?,
-      accessExpiresAt:
-      expRaw is String ? DateTime.tryParse(expRaw) : null,
+      accessExpiresAt: expRaw is String ? DateTime.tryParse(expRaw) : null,
       longToken: j['long_token'] as String?,
       userId: j['user_id'] as int?,
     );

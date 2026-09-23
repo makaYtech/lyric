@@ -16,6 +16,16 @@ class DeveloperScreen extends StatefulWidget {
   State<DeveloperScreen> createState() => _DeveloperScreenState();
 }
 
+/// Что выбрал юзер в модалке «Отравить…».
+class _PoisonTarget {
+  final String name;
+  final bool isDeviceToken;
+  const _PoisonTarget({required this.name, this.isDeviceToken = false});
+}
+
+/// Что выбрал юзер в модалке «Сбросить…».
+enum _ResetTarget { deviceToken, oauthPair, longToken }
+
 class _DeveloperScreenState extends State<DeveloperScreen> {
   final _tools = DebugTools.instance;
 
@@ -104,7 +114,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     );
   }
 
-  // ── Обработчики ────────────────────────────────────────────────────────
+  // ── Авторизация ────────────────────────────────────────────────────────
 
   Future<void> _toggleAuthFlow(bool useDevice) async {
     final current = AuthConfig.useDeviceTokenFlow.value;
@@ -129,53 +139,163 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     _goToLogin();
   }
 
-  Future<void> _clearDeviceToken() async {
-    final ok = await _confirm(
-      title: 'Сбросить device_token?',
-      body:
-          'auth_token останется живым, но при первом 401 обновить '
-          'сессию уже не получится — упрёмся в ReauthSheet. Это и есть '
-          'проверка граничного случая.',
+  // ── Сессия ЭПОС: отравление ───────────────────────────────────────────
+
+  Future<void> _pickPoisonTarget() async {
+    final snap = await _tools.snapshot();
+    if (!mounted) return;
+
+    final hasDeviceToken = (snap.epos?.deviceToken ?? '').isNotEmpty;
+    final cookies = snap.cookies;
+
+    if (!hasDeviceToken && cookies.isEmpty) {
+      _snack('Нечего отравлять — сессии нет');
+      return;
+    }
+
+    final picked = await showDialog<_PoisonTarget>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Что отравить?'),
+        children: [
+          if (hasDeviceToken)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop(
+                const _PoisonTarget(
+                  name: 'device_token (UUID)',
+                  isDeviceToken: true,
+                ),
+              ),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(vertical: 6),
+                child: Text('device_token (UUID)'),
+              ),
+            ),
+          if (hasDeviceToken && cookies.isNotEmpty) const Divider(height: 1),
+          for (final name in cookies.keys)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(ctx).pop(_PoisonTarget(name: name)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Text(name),
+              ),
+            ),
+        ],
+      ),
     );
-    if (!ok) return;
-    await _run(_tools.clearDeviceToken, successMessage: 'device_token сброшен');
+    if (picked == null || !mounted) return;
+
+    if (picked.isDeviceToken) {
+      await _run(
+        _tools.poisonDeviceToken,
+        successMessage: 'device_token отравлен',
+      );
+    } else {
+      await _run(
+        () => _tools.poisonCookie(picked.name),
+        successMessage: 'Cookie "${picked.name}" отравлена',
+      );
+    }
   }
 
-  Future<void> _poisonAuthToken() async {
-    final ok = await _confirm(
-      title: 'Отравить auth_token?',
-      body:
-          'Следующий запрос к API получит 401. Если новый flow '
-          'действительно самовосстанавливающийся — оно тут же поменяет '
-          'auth_token на свежий. Если нет — покажет ReauthSheet.',
-      confirmLabel: 'Отравить',
+  // ── Сессия ЭПОС: сброс ────────────────────────────────────────────────
+
+  Future<void> _pickResetTarget() async {
+    final picked = await showDialog<_ResetTarget>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('Что сбросить?'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(ctx).pop(_ResetTarget.deviceToken),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text('device_token (UUID)'),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(ctx).pop(_ResetTarget.oauthPair),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text('OAuth-пара (access + refresh)'),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(ctx).pop(_ResetTarget.longToken),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text('long_token'),
+            ),
+          ),
+        ],
+      ),
     );
-    if (!ok) return;
-    await _run(
-      _tools.poisonAuthToken,
-      successMessage: 'auth_token заменён на мусор',
-    );
+    if (picked == null || !mounted) return;
+
+    switch (picked) {
+      case _ResetTarget.deviceToken:
+        await _run(
+          _tools.clearDeviceToken,
+          successMessage: 'device_token сброшен',
+        );
+      case _ResetTarget.oauthPair:
+        await _run(
+          _tools.clearOauthPair,
+          successMessage: 'OAuth-пара сброшена',
+        );
+      case _ResetTarget.longToken:
+        await _run(_tools.clearLongToken, successMessage: 'long_token сброшен');
+    }
   }
 
-  Future<void> _clearOauthPair() async {
-    final ok = await _confirm(
-      title: 'Сбросить OAuth-пару?',
-      body:
-          'access_token, refresh_token и время истечения будут удалены. '
-          'Для device-token-сессии это безвредно, для legacy — сломает '
-          'refresh.',
+  // ── Сессия ЭПОС: прочее ───────────────────────────────────────────────
+
+  Future<void> _probeEndpoint() async {
+    final controller = TextEditingController(
+      text: '/core/api/profiles?ids=17938056',
     );
-    if (!ok) return;
-    await _run(_tools.clearOauthPair, successMessage: 'OAuth-пара сброшена');
+    final path = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Прямой запрос'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: '/core/api/...',
+            labelText: 'Path',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Отмена'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Отправить'),
+          ),
+        ],
+      ),
+    );
+    if (path == null || path.isEmpty || !mounted) return;
+
+    final result = await _tools.probe(path);
+    if (!mounted) return;
+    _snack('$path → $result');
+    _reload();
   }
 
-  Future<void> _clearLongToken() async {
-    final ok = await _confirm(
-      title: 'Сбросить long_token?',
-      body: 'long_token удаляется, остальные поля сессии остаются.',
-    );
-    if (!ok) return;
-    await _run(_tools.clearLongToken, successMessage: 'long_token сброшен');
+  Future<void> _forceRefresh() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final result = await _tools.forceSessionRefresh();
+      if (!mounted) return;
+      _snack(result);
+      _reload();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _clearWholeEposSession() async {
@@ -193,6 +313,8 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     );
   }
 
+  // ── device_key ────────────────────────────────────────────────────────
+
   Future<void> _resetDeviceKey() async {
     final ok = await _confirm(
       title: 'Сбросить device_key?',
@@ -203,6 +325,8 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     if (!ok) return;
     await _run(_tools.resetDeviceKey, successMessage: 'device_key сброшен');
   }
+
+  // ── Моя школа ─────────────────────────────────────────────────────────
 
   Future<void> _clearMySchool() async {
     final ok = await _confirm(
@@ -217,6 +341,8 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
       successMessage: 'Токены «Моей школы» сброшены',
     );
   }
+
+  // ── Кэш ───────────────────────────────────────────────────────────────
 
   Future<void> _clearProfileCache() async {
     await _run(_tools.clearProfileCache, successMessage: 'Кэш профиля сброшен');
@@ -268,6 +394,8 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     );
   }
 
+  // ── SQLite ────────────────────────────────────────────────────────────
+
   Future<void> _clearLessons() async {
     await _run(_tools.clearLessons, successMessage: 'Расписание очищено');
   }
@@ -306,18 +434,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     await _run(_tools.clearWholeDatabase, successMessage: 'SQLite очищена');
   }
 
-  Future<void> _forceRefresh() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      final result = await _tools.forceSessionRefresh();
-      if (!mounted) return;
-      _snack(result);
-      _reload();
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
+  // ── Опасная зона ──────────────────────────────────────────────────────
 
   Future<void> _fullWipe() async {
     final ok = await _confirm(
@@ -377,7 +494,7 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                       subtitle: Text(
                         useDevice
                             ? 'Новый: WebView → ESIA → diaryperm:// → '
-                                  '/authenticate с заголовком token'
+                                  'три запроса /authenticate'
                             : 'Legacy: PKCE + refresh_token + Phase C '
                                   'через скрытый WebView',
                       ),
@@ -385,10 +502,10 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                       onChanged: _busy ? null : _toggleAuthFlow,
                     ),
                   ),
-                  ListTile(
+                  const ListTile(
                     dense: true,
-                    leading: const Icon(Icons.info_outline, size: 18),
-                    title: const Text(
+                    leading: Icon(Icons.info_outline, size: 18),
+                    title: Text(
                       'Смена flow сбрасывает текущую сессию и возвращает '
                       'на LoginScreen. Применяется при следующем входе.',
                       style: TextStyle(fontSize: 12),
@@ -406,32 +523,34 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                         _SessionStatusTile(snapshot: snap.data),
                   ),
                   _ActionTile(
-                    icon: Icons.link_off,
-                    title: 'Сбросить device_token',
-                    subtitle: 'Ломает авто-восстановление. Проверка граничного случая',
+                    icon: Icons.bolt_outlined,
+                    title: 'Отравить…',
+                    subtitle: 'device_token или любую cookie',
                     enabled: !_busy,
-                    onTap: _clearDeviceToken,
+                    onTap: _pickPoisonTarget,
                   ),
                   _ActionTile(
-                    icon: Icons.warning_amber,
-                    title: 'Отравить auth_token',
-                    subtitle: 'Следующий запрос получит 401 — тест самовосстановления',
+                    icon: Icons.restore,
+                    title: 'Сбросить…',
+                    subtitle: 'device_token, OAuth-пара, long_token',
                     enabled: !_busy,
-                    onTap: _poisonAuthToken,
+                    onTap: _pickResetTarget,
                   ),
                   _ActionTile(
-                    icon: Icons.vpn_key_off,
-                    title: 'Сбросить OAuth-пару',
-                    subtitle: 'access_token + refresh_token + expires',
+                    icon: Icons.wifi_tethering,
+                    title: 'Прямой запрос (без renew)',
+                    subtitle:
+                        'В обход ApiClient и AuthCoordinator — '
+                        'чистый ответ сервера на текущие cookies',
                     enabled: !_busy,
-                    onTap: _clearOauthPair,
+                    onTap: _probeEndpoint,
                   ),
                   _ActionTile(
-                    icon: Icons.timer_off,
-                    title: 'Сбросить long_token',
-                    subtitle: 'Только long_token, остальное на месте',
+                    icon: Icons.refresh,
+                    title: 'Прогнать refresh прямо сейчас',
+                    subtitle: 'Дёрнуть AuthCoordinator.renew() вручную',
                     enabled: !_busy,
-                    onTap: _clearLongToken,
+                    onTap: _forceRefresh,
                   ),
                   _ActionTile(
                     icon: Icons.delete_forever,
@@ -440,13 +559,6 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                     enabled: !_busy,
                     onTap: _clearWholeEposSession,
                     danger: true,
-                  ),
-                  _ActionTile(
-                    icon: Icons.refresh,
-                    title: 'Прогнать refresh прямо сейчас',
-                    subtitle: 'Дёрнуть AuthCoordinator.renew() вручную',
-                    enabled: !_busy,
-                    onTap: _forceRefresh,
                   ),
                 ],
               ),
@@ -598,7 +710,9 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                   _ActionTile(
                     icon: Icons.delete_forever,
                     title: 'Полный сброс',
-                    subtitle: 'Сессия + кэш + prefs + SQLite. device_key и тема останутся',
+                    subtitle:
+                        'Сессия + кэш + prefs + SQLite. '
+                        'device_key и тема останутся',
                     enabled: !_busy,
                     onTap: _fullWipe,
                     danger: true,
@@ -783,42 +897,69 @@ class _SessionStatusTile extends StatelessWidget {
       );
     }
 
-    final device = _presence(s.deviceToken);
-    final auth = _presence(s.authToken);
     final oauth = s.refreshToken != null
         ? 'есть${s.accessExpiresAt != null ? " (${_expiresLabel(s.accessExpiresAt!)})" : ""}'
         : 'нет';
+
+    final cookies = s.cookies;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Текущее состояние',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              letterSpacing: 0.3,
-            ),
-          ),
+          _label(theme, 'Текущее состояние'),
           const SizedBox(height: 6),
           _row(
             theme,
             'flow',
             s.deviceToken != null ? 'device-token' : 'legacy OAuth',
           ),
-          _row(theme, 'device_token', device),
-          _row(theme, 'auth_token', auth),
+          _row(theme, 'device_token', _presence(s.deviceToken)),
+          _row(theme, 'auth_token (UUID)', _presence(s.authToken)),
           _row(theme, 'profile_id', s.profileId),
-          _row(theme, 'long_token', _presence(s.longToken)),
           _row(theme, 'OAuth-пара', oauth),
+          const SizedBox(height: 12),
+          _label(theme, 'Cookies (${cookies.length})'),
+          const SizedBox(height: 6),
+          if (cookies.isEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                '—',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            )
+          else
+            for (final entry in cookies.entries)
+              _row(theme, entry.key, _cookieValue(entry.value)),
         ],
       ),
     );
   }
 
+  static Widget _label(ThemeData theme, String text) => Text(
+    text,
+    style: theme.textTheme.labelMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      letterSpacing: 0.3,
+    ),
+  );
+
+  /// "true"/"false" показываем как есть — длина бессмысленна.
+  /// Остальное — "есть (N симв.)". Маркер POISONED_ подсвечиваем.
+  static String _cookieValue(String v) {
+    if (v.isEmpty) return '—';
+    if (v == 'true' || v == 'false') return v;
+    if (v.startsWith('POISONED_')) return 'ОТРАВЛЕНО';
+    return 'есть (${v.length} симв.)';
+  }
+
   static String _presence(String? v) {
     if (v == null || v.isEmpty) return '—';
+    if (v.startsWith('POISONED_')) return 'ОТРАВЛЕНО';
     return 'есть (${v.length} симв.)';
   }
 
@@ -831,13 +972,14 @@ class _SessionStatusTile extends StatelessWidget {
   }
 
   static Widget _row(ThemeData theme, String label, String value) {
+    final isPoisoned = value == 'ОТРАВЛЕНО';
     return Padding(
       padding: const EdgeInsets.only(top: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 110,
+            width: 130,
             child: Text(
               label,
               style: theme.textTheme.bodySmall?.copyWith(
@@ -850,6 +992,8 @@ class _SessionStatusTile extends StatelessWidget {
               value,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontFeatures: const [FontFeature.tabularFigures()],
+                color: isPoisoned ? theme.colorScheme.error : null,
+                fontWeight: isPoisoned ? FontWeight.w700 : null,
               ),
             ),
           ),

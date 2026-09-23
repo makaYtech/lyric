@@ -47,8 +47,7 @@ class _DeviceReauthScreenState extends State<DeviceReauthScreen> {
     _busy = true;
     if (mounted) setState(() => _status = 'Обмен токена на сессию...');
 
-    final result =
-    await DeviceTokenAuthService.instance.exchange(deviceToken);
+    final result = await DeviceTokenAuthService.instance.exchange(deviceToken);
     if (!mounted) return;
 
     final payload = result.payload;
@@ -63,10 +62,12 @@ class _DeviceReauthScreenState extends State<DeviceReauthScreen> {
     }
 
     final session = EposSession(
-      authToken: payload.authToken,
+      authToken: deviceToken,
       profileId: payload.profileId,
       deviceToken: deviceToken,
-      longToken: payload.longToken,
+      cookies: payload.cookies,
+      longToken: payload.cookies['long_token'],
+      userId: int.tryParse(payload.cookies['user_id'] ?? ''),
     );
     await SessionRefreshService.instance.save(session);
     if (!mounted) return;

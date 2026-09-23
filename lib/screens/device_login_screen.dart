@@ -8,7 +8,8 @@ import '../core/theme/theme_controller.dart';
 import 'home_screen.dart';
 
 /// Интерактивный вход по новому flow: ESIA-логин через WebView,
-/// ловля diaryperm://redirect?token=, exchange на cookie-сессию.
+/// ловля diaryperm://redirect?token=, трёхшаговый exchange на cookie-сессию
+/// (см. DeviceTokenAuthService.exchange).
 ///
 /// В конце НЕ возвращает значение — pushReplacement'ит HomeScreen.
 /// Для случая "перелогин из HomeScreen" есть DeviceReauthScreen.
@@ -53,8 +54,7 @@ class _DeviceLoginScreenState extends State<DeviceLoginScreen> {
     _busy = true;
     if (mounted) setState(() => _status = 'Обмен токена на сессию...');
 
-    final result =
-    await DeviceTokenAuthService.instance.exchange(deviceToken);
+    final result = await DeviceTokenAuthService.instance.exchange(deviceToken);
     if (!mounted) return;
 
     final payload = result.payload;
@@ -69,10 +69,14 @@ class _DeviceLoginScreenState extends State<DeviceLoginScreen> {
     }
 
     final session = EposSession(
-      authToken: payload.authToken,
+      // authToken в EposSession — это UUID из deep-link. Он же
+      // используется в POST /authenticate/student_profile.
+      authToken: deviceToken,
       profileId: payload.profileId,
       deviceToken: deviceToken,
-      longToken: payload.longToken,
+      cookies: payload.cookies,
+      longToken: payload.cookies['long_token'],
+      userId: int.tryParse(payload.cookies['user_id'] ?? ''),
     );
     await SessionRefreshService.instance.save(session);
     if (!mounted) return;

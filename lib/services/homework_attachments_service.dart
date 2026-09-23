@@ -26,11 +26,15 @@ import 'epos_response_guard.dart';
 /// Важно: PUT принимает не патч, а всю запись — поэтому её сначала
 /// вычитываем с сервера. Мусорные поля веб-клиента (restangularized,
 /// reqParams, headers) серверу не нужны и не отправляются.
+///
+/// Аутентификация — cookies (см. ApiClient). Заголовки Auth-Token /
+/// Profile-Id оставлены fallback'ом для legacy-сессий.
 class HomeworkAttachmentsService {
   HomeworkAttachmentsService._();
   static final instance = HomeworkAttachmentsService._();
 
   static const _base = 'https://edu-epos.permkrai.ru';
+  static const _userAgent = 'okhttp/4.12.0';
   final _api = ApiClient();
 
   EposTokens? get _tokens => AuthCoordinator.instance.tokens;
@@ -42,35 +46,41 @@ class HomeworkAttachmentsService {
   }
 
   Future<List<HomeworkAttachment>> attach(
-      int studentHomeworkId, {
-        required String filePath,
-        required String fileName,
-      }) async {
+    int studentHomeworkId, {
+    required String filePath,
+    required String fileName,
+  }) async {
     final uploaded = await _upload(filePath, fileName);
     final entity = await _fetchEntity(studentHomeworkId);
 
     final attachments = _rawAttachments(entity)..add(uploaded);
-    final ids = attachments
-        .map((a) => a['id'])
-        .whereType<int>()
-        .toList();
+    final ids = attachments.map((a) => a['id']).whereType<int>().toList();
 
-    final updated = await _putEntity(studentHomeworkId, entity, attachments, ids);
+    final updated = await _putEntity(
+      studentHomeworkId,
+      entity,
+      attachments,
+      ids,
+    );
     return _readAttachments(updated);
   }
 
   Future<List<HomeworkAttachment>> detach(
-      int studentHomeworkId,
-      int attachmentId,
-      ) async {
+    int studentHomeworkId,
+    int attachmentId,
+  ) async {
     final entity = await _fetchEntity(studentHomeworkId);
 
     final attachments = _rawAttachments(entity)
       ..removeWhere((a) => a['id'] == attachmentId);
     final ids = attachments.map((a) => a['id']).whereType<int>().toList();
 
-    final updated =
-    await _putEntity(studentHomeworkId, entity, attachments, ids);
+    final updated = await _putEntity(
+      studentHomeworkId,
+      entity,
+      attachments,
+      ids,
+    );
 
     // Сам файл убираем вторым шагом: сначала он должен перестать быть
     // привязанным, иначе сервер может отказать в удалении.
@@ -84,21 +94,22 @@ class HomeworkAttachmentsService {
     return _withAuthRetry((tokens) async {
       final client = await createEposHttpClient();
       try {
-        final req = http.MultipartRequest(
-          'POST',
-          Uri.parse('$_base/core/api/attachments?pid=${tokens.profileId}'),
-        )
-          ..headers.addAll(_headers(tokens))
-          ..fields['file_name'] = name
-          ..files.add(await http.MultipartFile.fromPath(
-            'file',
-            path,
-            filename: name,
-          ));
+        final req =
+            http.MultipartRequest(
+                'POST',
+                Uri.parse(
+                  '$_base/core/api/attachments?pid=${tokens.profileId}',
+                ),
+              )
+              ..headers.addAll(_headers(tokens))
+              ..fields['file_name'] = name
+              ..files.add(
+                await http.MultipartFile.fromPath('file', path, filename: name),
+              );
 
-        final streamed = await client.send(req).timeout(
-          const Duration(seconds: 120),
-        );
+        final streamed = await client
+            .send(req)
+            .timeout(const Duration(seconds: 120));
         final body = await streamed.stream.bytesToString();
         final resp = http.Response(body, streamed.statusCode);
         ensureSessionValid(resp);
@@ -117,11 +128,11 @@ class HomeworkAttachmentsService {
   }
 
   Future<Map<String, dynamic>> _putEntity(
-      int id,
-      Map<String, dynamic> entity,
-      List<Map<String, dynamic>> attachments,
-      List<int> attachmentIds,
-      ) async {
+    int id,
+    Map<String, dynamic> entity,
+    List<Map<String, dynamic>> attachments,
+    List<int> attachmentIds,
+  ) async {
     final payload = Map<String, dynamic>.from(entity)
       ..['attachments'] = attachments
       ..['attachment_ids'] = attachmentIds;
@@ -131,15 +142,15 @@ class HomeworkAttachmentsService {
       try {
         final resp = await client
             .put(
-          Uri.parse(
-            '$_base/core/api/student_homeworks/$id?pid=${tokens.profileId}',
-          ),
-          headers: {
-            ..._headers(tokens),
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode(payload),
-        )
+              Uri.parse(
+                '$_base/core/api/student_homeworks/$id?pid=${tokens.profileId}',
+              ),
+              headers: {
+                ..._headers(tokens),
+                'Content-Type': 'application/json',
+              },
+              body: jsonEncode(payload),
+            )
             .timeout(const Duration(seconds: 30));
         ensureSessionValid(resp);
         if (resp.statusCode >= 400) {
@@ -159,12 +170,12 @@ class HomeworkAttachmentsService {
       try {
         final resp = await client
             .delete(
-          Uri.parse(
-            '$_base/core/api/attachments/$attachmentId'
+              Uri.parse(
+                '$_base/core/api/attachments/$attachmentId'
                 '?pid=${tokens.profileId}',
-          ),
-          headers: _headers(tokens),
-        )
+              ),
+              headers: _headers(tokens),
+            )
             .timeout(const Duration(seconds: 30));
         if (resp.statusCode == 401 || resp.statusCode == 403) {
           throw const SessionExpiredException();
@@ -198,11 +209,11 @@ class HomeworkAttachmentsService {
     final list = await _api.getList(
       Uri.parse(
         '$_base/core/api/student_homeworks'
-            '?begin_date=${dotDate(DateTime(year, 9, 1))}'
-            '&end_date=${dotDate(DateTime(year + 1, 8, 31))}'
-            '&student_profile_id=${tokens.profileId}'
-            '&page=1&per_page=1000'
-            '&pid=${tokens.profileId}',
+        '?begin_date=${dotDate(DateTime(year, 9, 1))}'
+        '&end_date=${dotDate(DateTime(year + 1, 8, 31))}'
+        '&student_profile_id=${tokens.profileId}'
+        '&page=1&per_page=1000'
+        '&pid=${tokens.profileId}',
       ),
       tokens,
       attempts: 2,
@@ -221,17 +232,26 @@ class HomeworkAttachmentsService {
     return t;
   }
 
-  Map<String, String> _headers(EposTokens tokens) => {
-    'Auth-Token': tokens.authToken,
-    'Profile-Id': tokens.profileId,
-    'Accept': 'application/json',
-  };
+  /// Cookie-аутентификация; Auth-Token/Profile-Id — fallback для legacy.
+  Map<String, String> _headers(EposTokens tokens) {
+    final headers = <String, String>{
+      'Accept': 'application/json',
+      'User-Agent': _userAgent,
+    };
+    if (tokens.cookieHeader.isNotEmpty) {
+      headers['Cookie'] = tokens.cookieHeader;
+    } else {
+      headers['Auth-Token'] = tokens.authToken;
+      headers['Profile-Id'] = tokens.profileId;
+    }
+    return headers;
+  }
 
   /// Эти запросы идут мимо ApiClient (multipart/PUT/DELETE), поэтому
   /// автопродление сессии дублируем здесь вручную.
   Future<T> _withAuthRetry<T>(
-      Future<T> Function(EposTokens tokens) action,
-      ) async {
+    Future<T> Function(EposTokens tokens) action,
+  ) async {
     try {
       return await action(_requireTokens());
     } on SessionExpiredException {
@@ -249,25 +269,27 @@ class HomeworkAttachmentsService {
   }
 
   static List<Map<String, dynamic>> _rawAttachments(
-      Map<String, dynamic> entity,
-      ) {
+    Map<String, dynamic> entity,
+  ) {
     final raw = entity['attachments'];
     if (raw is! List) return <Map<String, dynamic>>[];
     return raw
         .whereType<Map<String, dynamic>>()
-        .map((a) => <String, dynamic>{
-      'id': a['id'],
-      'file_file_name': a['file_file_name'],
-      'file_content_type': a['file_content_type'],
-      'file_file_size': a['file_file_size'],
-      'path': a['path'],
-    })
+        .map(
+          (a) => <String, dynamic>{
+            'id': a['id'],
+            'file_file_name': a['file_file_name'],
+            'file_content_type': a['file_content_type'],
+            'file_file_size': a['file_file_size'],
+            'path': a['path'],
+          },
+        )
         .toList();
   }
 
   static List<HomeworkAttachment> _readAttachments(
-      Map<String, dynamic> entity,
-      ) {
+    Map<String, dynamic> entity,
+  ) {
     final raw = entity['attachments'];
     if (raw is! List) return const [];
     return raw

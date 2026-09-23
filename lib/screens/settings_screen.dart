@@ -38,6 +38,8 @@ class SettingsScreen extends StatelessWidget {
     this.teachers,
   });
 
+  // ── Действия ──────────────────────────────────────────────────────────
+
   Future<void> _logout(BuildContext context) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -266,6 +268,8 @@ class SettingsScreen extends StatelessWidget {
     UpdateChannel.alpha => 'Alpha · экспериментальные',
   };
 
+  // ── Аватарки ──────────────────────────────────────────────────────────
+
   Future<void> _resetStudentAvatar(BuildContext context) async {
     final key = studentAvatarKey;
     if (key == null) return;
@@ -395,6 +399,8 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  // ── Для разработчика ──────────────────────────────────────────────────
+
   Future<void> _openDeveloper(BuildContext context) async {
     final proceed = await showDialog<bool>(
       context: context,
@@ -446,326 +452,430 @@ class SettingsScreen extends StatelessWidget {
     return 'учителей';
   }
 
+  // ── UI ────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    final hasStudentAvatar = studentAvatarKey != null;
-    final hasTeachers = teachers != null && teachers!.isNotEmpty;
-
     return Scaffold(
       appBar: AppBar(title: const Text('Настройки')),
       body: AnimatedBuilder(
         animation: themeController,
-        builder: (context, _) {
-          return ListView(
-            children: [
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                child: Text(
-                  'Тема оформления',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+        builder: (context, _) => ListView(
+          padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
+          children: [
+            // 1. Внешний вид
+            _SectionHeader(icon: Icons.palette_outlined, title: 'Внешний вид'),
+            _SettingsCard(
+              children: [
+                RadioListTile<ThemeMode>(
+                  title: const Text('Светлая'),
+                  value: ThemeMode.light,
+                  groupValue: themeController.mode,
+                  onChanged: (v) => themeController.setMode(v!),
                 ),
-              ),
-              RadioListTile<ThemeMode>(
-                title: const Text('Светлая'),
-                value: ThemeMode.light,
-                groupValue: themeController.mode,
-                onChanged: (v) => themeController.setMode(v!),
-              ),
-              RadioListTile<ThemeMode>(
-                title: const Text('Тёмная'),
-                value: ThemeMode.dark,
-                groupValue: themeController.mode,
-                onChanged: (v) => themeController.setMode(v!),
-              ),
-              RadioListTile<ThemeMode>(
-                title: const Text('Как в системе'),
-                subtitle: const Text(
-                  'Следует теме устройства. На Android 12+ подхватывает '
-                  'акцентные цвета твоей темы (Material You), если система их отдаёт',
+                const Divider(height: 1),
+                RadioListTile<ThemeMode>(
+                  title: const Text('Тёмная'),
+                  value: ThemeMode.dark,
+                  groupValue: themeController.mode,
+                  onChanged: (v) => themeController.setMode(v!),
                 ),
-                value: ThemeMode.system,
-                groupValue: themeController.mode,
-                onChanged: (v) => themeController.setMode(v!),
-              ),
-              const Divider(height: 32),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Расписание',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: SchedulePrefs.mergePairs,
-                builder: (context, merge, _) => SwitchListTile(
-                  title: const Text('Объединять уроки в пары'),
+                const Divider(height: 1),
+                RadioListTile<ThemeMode>(
+                  title: const Text('Как в системе'),
                   subtitle: const Text(
-                    'Если два одинаковых урока подряд (тот же предмет, '
-                    'учитель и кабинет) — показывать их одной карточкой',
+                    'Следует теме устройства. На Android 12+ подхватывает '
+                    'акцентные цвета твоей темы (Material You)',
                   ),
-                  value: merge,
-                  onChanged: SchedulePrefs.setMergePairs,
+                  value: ThemeMode.system,
+                  groupValue: themeController.mode,
+                  onChanged: (v) => themeController.setMode(v!),
                 ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: SchedulePrefs.showOverrides,
-                builder: (context, value, _) => SwitchListTile(
-                  title: const Text('Показывать мои правки'),
-                  subtitle: const Text(
-                    'Выключи, чтобы увидеть расписание строго как на '
-                    'сервере. Правки не удалятся и вернутся при '
-                    'включении обратно',
-                  ),
-                  value: value,
-                  onChanged: SchedulePrefs.setShowOverrides,
-                ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: SchedulePrefs.showGaps,
-                builder: (context, value, _) => SwitchListTile(
-                  title: const Text('Показывать окна'),
-                  subtitle: const Text(
-                    'Между уроками с большим перерывом показывается '
-                    'карточка «Окно»',
-                  ),
-                  value: value,
-                  onChanged: SchedulePrefs.setShowGaps,
-                ),
-              ),
-              ValueListenableBuilder<int>(
-                valueListenable: SchedulePrefs.gapThresholdMinutes,
-                builder: (context, value, _) => ListTile(
-                  title: const Text('Порог окна'),
-                  subtitle: Text('Больше $value мин перерыва — окно'),
-                  enabled: SchedulePrefs.showGaps.value,
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _pickGapThreshold(context),
-                ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: SchedulePrefs.autoScrollToToday,
-                builder: (context, value, _) => SwitchListTile(
-                  title: const Text('Перелистывать на текущий день'),
-                  subtitle: const Text(
-                    'При первом заходе на вкладку «Расписание» прокручивать '
-                    'к сегодняшнему дню. При повторных заходах позиция '
-                    'сохраняется',
-                  ),
-                  value: value,
-                  onChanged: SchedulePrefs.setAutoScrollToToday,
-                ),
-              ),
-              const Divider(height: 32),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Профиль',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 4),
-                child: Text(
-                  'Аватарки',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-              if (hasStudentAvatar)
-                ListTile(
-                  leading: const Icon(Icons.person_off_outlined),
-                  title: const Text('Сбросить аватар ученика'),
-                  subtitle: const Text(
-                    'Вернуть инициалы. Файл на устройстве не удаляется',
-                  ),
-                  onTap: () => _resetStudentAvatar(context),
-                ),
-              if (hasTeachers)
-                ListTile(
-                  leading: const Icon(Icons.school_outlined),
-                  title: const Text('Сбросить аватар учителя'),
-                  subtitle: const Text('Выбрать из списка'),
-                  onTap: () => _resetTeacherAvatar(context),
-                ),
-              const SizedBox(height: 8),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: Text(
-                  'Учителя',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: TeacherPrefs.onlyStudentTeachers,
-                builder: (context, value, _) => SwitchListTile(
-                  title: const Text('Только мои учителя'),
-                  subtitle: const Text(
-                    'Показывать только тех, кто ведёт уроки у этого '
-                    'ученика. Список строится по расписанию, '
-                    'сохранённому на устройстве',
-                  ),
-                  value: value,
-                  onChanged: TeacherPrefs.setOnlyStudentTeachers,
-                ),
-              ),
-              const Divider(height: 1),
-              ValueListenableBuilder<int>(
-                valueListenable: TeacherPrefs.subjectsLimit,
-                builder: (context, limit, _) => ListTile(
-                  title: const Text('Предметов в карточке'),
-                  subtitle: Text(TeacherPrefs.limitLabel(limit)),
-                  onTap: () => _pickLimit(
-                    context,
-                    title: 'Предметов в карточке',
-                    current: limit,
-                    onPicked: TeacherPrefs.setSubjectsLimit,
+              ],
+            ),
+
+            // 2. Расписание
+            _SectionHeader(
+              icon: Icons.calendar_today_outlined,
+              title: 'Расписание',
+            ),
+            _SettingsCard(
+              children: [
+                ValueListenableBuilder<bool>(
+                  valueListenable: SchedulePrefs.mergePairs,
+                  builder: (context, merge, _) => SwitchListTile(
+                    title: const Text('Объединять уроки в пары'),
+                    subtitle: const Text(
+                      'Если два одинаковых урока подряд (тот же предмет, '
+                      'учитель и кабинет) — показывать одной карточкой',
+                    ),
+                    value: merge,
+                    onChanged: SchedulePrefs.setMergePairs,
                   ),
                 ),
-              ),
-              ValueListenableBuilder<int>(
-                valueListenable: TeacherPrefs.roomsLimit,
-                builder: (context, limit, _) => ListTile(
-                  title: const Text('Кабинетов в карточке'),
-                  subtitle: Text(TeacherPrefs.limitLabel(limit)),
-                  onTap: () => _pickLimit(
-                    context,
-                    title: 'Кабинетов в карточке',
-                    current: limit,
-                    onPicked: TeacherPrefs.setRoomsLimit,
+                const Divider(height: 1),
+                ValueListenableBuilder<bool>(
+                  valueListenable: SchedulePrefs.showOverrides,
+                  builder: (context, value, _) => SwitchListTile(
+                    title: const Text('Показывать мои правки'),
+                    subtitle: const Text(
+                      'Выключи, чтобы увидеть расписание строго как на '
+                      'сервере. Правки не удалятся и вернутся при '
+                      'включении обратно',
+                    ),
+                    value: value,
+                    onChanged: SchedulePrefs.setShowOverrides,
                   ),
                 ),
-              ),
-              ValueListenableBuilder<bool>(
-                valueListenable: TeacherPrefs.showOldRooms,
-                builder: (context, value, _) => SwitchListTile(
-                  title: const Text('Показывать старые кабинеты'),
-                  subtitle: const Text(
-                    'Учителя со временем меняли кабинеты. По умолчанию '
-                    'виден только текущий, где он ответственный. Включи, '
-                    'чтобы показать все кабинеты из истории',
+                const Divider(height: 1),
+                ValueListenableBuilder<bool>(
+                  valueListenable: SchedulePrefs.showGaps,
+                  builder: (context, value, _) => SwitchListTile(
+                    title: const Text('Показывать окна'),
+                    subtitle: const Text(
+                      'Между уроками с большим перерывом показывается '
+                      'карточка «Окно»',
+                    ),
+                    value: value,
+                    onChanged: SchedulePrefs.setShowGaps,
                   ),
-                  value: value,
-                  onChanged: TeacherPrefs.setShowOldRooms,
                 ),
-              ),
-              const Divider(height: 32),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Источник данных',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              ValueListenableBuilder<String>(
-                valueListenable: BackendPrefs.current,
-                builder: (context, currentId, _) {
-                  final info = Backends.byId(currentId);
-                  return ListTile(
-                    title: const Text('Endpoint service'),
-                    subtitle: Text(info.displayName),
+                const Divider(height: 1),
+                ValueListenableBuilder<int>(
+                  valueListenable: SchedulePrefs.gapThresholdMinutes,
+                  builder: (context, value, _) => ListTile(
+                    title: const Text('Порог окна'),
+                    subtitle: Text('Больше $value мин перерыва — окно'),
+                    enabled: SchedulePrefs.showGaps.value,
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _pickBackend(context),
-                  );
-                },
-              ),
-              const Divider(height: 32),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Аккаунт',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              ListTile(
-                leading: Icon(
-                  Icons.logout,
-                  color: Theme.of(context).colorScheme.error,
-                ),
-                title: Text(
-                  'Выйти из аккаунта',
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-                onTap: () => _logout(context),
-              ),
-              const Divider(height: 32),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Обновления',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              ValueListenableBuilder<UpdateChannel>(
-                valueListenable: UpdatePrefs.channel,
-                builder: (context, channel, _) => ListTile(
-                  leading: const Icon(Icons.tune),
-                  title: const Text('Канал обновлений'),
-                  subtitle: Text(_channelLabel(channel)),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () => _pickChannel(context),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.system_update_alt),
-                title: const Text('Проверить обновление'),
-                subtitle: const Text(
-                  'Вручную проверить выбранный канал и установить новую версию',
-                ),
-                onTap: () => _checkUpdates(context),
-              ),
-              const Divider(height: 32),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'О приложении',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              FutureBuilder<PackageInfo>(
-                future: PackageInfo.fromPlatform(),
-                builder: (context, snap) => ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('Версия'),
-                  subtitle: Text(
-                    snap.hasData
-                        ? '${snap.data!.version} '
-                              '(сборка ${snap.data!.buildNumber})'
-                        : '—',
+                    onTap: () => _pickGapThreshold(context),
                   ),
                 ),
-              ),
-              const ListTile(
-                leading: Icon(Icons.person_outline),
-                title: Text('Автор'),
-                subtitle: Text('makaYtech'),
-              ),
-              const ListTile(
-                leading: Icon(Icons.code),
-                title: Text('Репозиторий'),
-                subtitle: Text('github.com/makaYtech/lyric_apk'),
-              ),
-              const Divider(height: 32),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Для разработчика',
-                  style: TextStyle(fontWeight: FontWeight.bold),
+                const Divider(height: 1),
+                ValueListenableBuilder<bool>(
+                  valueListenable: SchedulePrefs.autoScrollToToday,
+                  builder: (context, value, _) => SwitchListTile(
+                    title: const Text('Перелистывать на текущий день'),
+                    subtitle: const Text(
+                      'При первом заходе на вкладку «Расписание» '
+                      'прокручивать к сегодняшнему дню',
+                    ),
+                    value: value,
+                    onChanged: SchedulePrefs.setAutoScrollToToday,
+                  ),
                 ),
-              ),
-              ListTile(
-                leading: Icon(
-                  Icons.bug_report_outlined,
-                  color: Theme.of(context).colorScheme.error,
+              ],
+            ),
+
+            // 3. Профиль
+            _SectionHeader(icon: Icons.person_outline, title: 'Профиль'),
+            _SettingsCard(
+              children: [
+                if (studentAvatarKey != null) ...[
+                  ListTile(
+                    leading: const Icon(Icons.person_off_outlined),
+                    title: const Text('Сбросить аватар ученика'),
+                    subtitle: const Text(
+                      'Вернуть инициалы. Файл на устройстве не удаляется',
+                    ),
+                    onTap: () => _resetStudentAvatar(context),
+                  ),
+                ],
+                if (studentAvatarKey != null &&
+                    teachers != null &&
+                    teachers!.isNotEmpty)
+                  const Divider(height: 1),
+                if (teachers != null && teachers!.isNotEmpty)
+                  ListTile(
+                    leading: const Icon(Icons.school_outlined),
+                    title: const Text('Сбросить аватар учителя'),
+                    subtitle: const Text('Выбрать из списка'),
+                    onTap: () => _resetTeacherAvatar(context),
+                  ),
+                if (studentAvatarKey != null ||
+                    (teachers != null && teachers!.isNotEmpty))
+                  const _SubHeader('Учителя в карточке'),
+                ValueListenableBuilder<bool>(
+                  valueListenable: TeacherPrefs.onlyStudentTeachers,
+                  builder: (context, value, _) => SwitchListTile(
+                    title: const Text('Только мои учителя'),
+                    subtitle: const Text(
+                      'Показывать только тех, кто ведёт уроки у этого '
+                      'ученика',
+                    ),
+                    value: value,
+                    onChanged: TeacherPrefs.setOnlyStudentTeachers,
+                  ),
                 ),
-                title: const Text('Для разработчика'),
-                subtitle: const Text(
-                  'Сброс токенов, кэша и БД по частям. Опасно',
+                const Divider(height: 1),
+                ValueListenableBuilder<int>(
+                  valueListenable: TeacherPrefs.subjectsLimit,
+                  builder: (context, limit, _) => ListTile(
+                    title: const Text('Предметов в карточке'),
+                    subtitle: Text(TeacherPrefs.limitLabel(limit)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _pickLimit(
+                      context,
+                      title: 'Предметов в карточке',
+                      current: limit,
+                      onPicked: TeacherPrefs.setSubjectsLimit,
+                    ),
+                  ),
                 ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => _openDeveloper(context),
-              ),
-            ],
-          );
-        },
+                const Divider(height: 1),
+                ValueListenableBuilder<int>(
+                  valueListenable: TeacherPrefs.roomsLimit,
+                  builder: (context, limit, _) => ListTile(
+                    title: const Text('Кабинетов в карточке'),
+                    subtitle: Text(TeacherPrefs.limitLabel(limit)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _pickLimit(
+                      context,
+                      title: 'Кабинетов в карточке',
+                      current: limit,
+                      onPicked: TeacherPrefs.setRoomsLimit,
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ValueListenableBuilder<bool>(
+                  valueListenable: TeacherPrefs.showOldRooms,
+                  builder: (context, value, _) => SwitchListTile(
+                    title: const Text('Показывать старые кабинеты'),
+                    subtitle: const Text(
+                      'По умолчанию виден только текущий кабинет, где '
+                      'учитель ответственный. Включи, чтобы показать все '
+                      'кабинеты из истории',
+                    ),
+                    value: value,
+                    onChanged: TeacherPrefs.setShowOldRooms,
+                  ),
+                ),
+              ],
+            ),
+
+            // 4. Обновления
+            _SectionHeader(
+              icon: Icons.system_update_outlined,
+              title: 'Обновления',
+            ),
+            _SettingsCard(
+              children: [
+                ValueListenableBuilder<UpdateChannel>(
+                  valueListenable: UpdatePrefs.channel,
+                  builder: (context, channel, _) => ListTile(
+                    title: const Text('Канал обновлений'),
+                    subtitle: Text(_channelLabel(channel)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _pickChannel(context),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt),
+                  title: const Text('Проверить обновление'),
+                  subtitle: const Text(
+                    'Вручную проверить выбранный канал и установить '
+                    'новую версию',
+                  ),
+                  onTap: () => _checkUpdates(context),
+                ),
+              ],
+            ),
+
+            // 5. Источник данных
+            _SectionHeader(
+              icon: Icons.cloud_outlined,
+              title: 'Источник данных',
+            ),
+            _SettingsCard(
+              children: [
+                ValueListenableBuilder<String>(
+                  valueListenable: BackendPrefs.current,
+                  builder: (context, currentId, _) {
+                    final info = Backends.byId(currentId);
+                    return ListTile(
+                      title: const Text('Endpoint service'),
+                      subtitle: Text(info.displayName),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () => _pickBackend(context),
+                    );
+                  },
+                ),
+              ],
+            ),
+
+            // 6. Аккаунт
+            _SectionHeader(
+              icon: Icons.account_circle_outlined,
+              title: 'Аккаунт',
+            ),
+            _SettingsCard(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    Icons.logout,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: Text(
+                    'Выйти из аккаунта',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                  onTap: () => _logout(context),
+                ),
+              ],
+            ),
+
+            // 7. О приложении
+            _SectionHeader(icon: Icons.info_outline, title: 'О приложении'),
+            _SettingsCard(
+              children: [
+                FutureBuilder<PackageInfo>(
+                  future: PackageInfo.fromPlatform(),
+                  builder: (context, snap) => ListTile(
+                    leading: const Icon(Icons.numbers),
+                    title: const Text('Версия'),
+                    subtitle: Text(
+                      snap.hasData
+                          ? '${snap.data!.version} '
+                                '(сборка ${snap.data!.buildNumber})'
+                          : '—',
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                const ListTile(
+                  leading: Icon(Icons.person_outline),
+                  title: Text('Автор'),
+                  subtitle: Text('makaYtech'),
+                ),
+                const Divider(height: 1),
+                const ListTile(
+                  leading: Icon(Icons.code),
+                  title: Text('Репозиторий'),
+                  subtitle: Text('github.com/makaYtech/lyric_apk'),
+                ),
+              ],
+            ),
+
+            // 8. Для разработчика
+            _SectionHeader(
+              icon: Icons.bug_report_outlined,
+              title: 'Для разработчика',
+              danger: true,
+            ),
+            _SettingsCard(
+              children: [
+                ListTile(
+                  leading: Icon(
+                    Icons.warning_amber_rounded,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: const Text('Опасные операции'),
+                  subtitle: const Text(
+                    'Сброс токенов, кэша и БД по частям. Может сломать '
+                    'приложение',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _openDeveloper(context),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Виджеты секций ──────────────────────────────────────────────────────
+
+/// Заголовок секции: иконка + текст. Стоит над карточкой.
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final bool danger;
+
+  const _SectionHeader({
+    required this.icon,
+    required this.title,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = danger
+        ? theme.colorScheme.error
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Text(
+            title,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Маленький подзаголовок внутри карточки — разделяет связанные группы
+/// настроек (например, «Аватарки» и «Учителя» внутри «Профиля»).
+class _SubHeader extends StatelessWidget {
+  final String title;
+
+  const _SubHeader(this.title);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+      child: Text(
+        title,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
+}
+
+/// Карточка с настройками. Внутри — дети через Divider'ы (передавай их
+/// сам между элементами, если нужны). Все элементы — ListTile и его
+/// вариации, без дополнительной обёртки.
+class _SettingsCard extends StatelessWidget {
+  final List<Widget> children;
+
+  const _SettingsCard({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Card(
+        elevation: 0,
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: children,
+        ),
       ),
     );
   }

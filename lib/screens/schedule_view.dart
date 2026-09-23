@@ -898,7 +898,7 @@ class _ScheduleViewState extends State<ScheduleView>
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
+        duration: const Duration(seconds: 2),
         action: revert == null
             ? null
             : SnackBarAction(
@@ -911,7 +911,7 @@ class _ScheduleViewState extends State<ScheduleView>
               ),
       ),
     );
-    Future.delayed(const Duration(milliseconds: 4500), () {
+    Future.delayed(const Duration(milliseconds: 1000), () {
       if (mounted) messenger.hideCurrentSnackBar();
     });
   }
