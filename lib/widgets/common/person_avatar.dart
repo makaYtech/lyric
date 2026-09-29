@@ -113,7 +113,7 @@ class _PersonAvatarState extends State<PersonAvatar> {
 
     return ValueListenableBuilder<int>(
       valueListenable: AvatarStorage.revisionFor(key),
-      builder: (context, _, __) => _render(AvatarStorage.cachedPath(key)),
+      builder: (context, _, _) => _render(AvatarStorage.cachedPath(key)),
     );
   }
 
@@ -132,13 +132,13 @@ class _PersonAvatarState extends State<PersonAvatar> {
         key: ValueKey(localPath),
         fit: BoxFit.cover,
         gaplessPlayback: true,
-        errorBuilder: (_, __, ___) => _initialsBox(theme),
+        errorBuilder: (_, _, _) => _initialsBox(theme),
       );
     } else if (hasNetwork) {
       imageWidget = Image.network(
         widget.photoUrl!,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => _initialsBox(theme),
+        errorBuilder: (_, _, _) => _initialsBox(theme),
       );
     } else {
       imageWidget = _initialsBox(theme);
@@ -165,7 +165,7 @@ class _PersonAvatarState extends State<PersonAvatar> {
             Positioned.fill(
               child: Container(
                 decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
+                  color: Colors.black.withValues(alpha: 0.3),
                   shape: BoxShape.circle,
                 ),
                 child: const Center(

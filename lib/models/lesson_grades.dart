@@ -45,7 +45,9 @@ class LessonGradesLookup {
 
     final subjectByName = <String, SubjectGrade>{};
     if (grades != null) {
-      for (final g in grades) subjectByName[g.name] = g;
+      for (final g in grades) {
+        subjectByName[g.name] = g;
+      }
     }
 
     final map = <int, List<LessonGrade>>{};

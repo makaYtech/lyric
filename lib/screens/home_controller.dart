@@ -35,7 +35,7 @@ import '../core/auth/auth_coordinator.dart';
 
 class HomeController extends ChangeNotifier {
   HomeController({
-    required EposSession session,
+    required this._session,
     required void Function(String message) onError,
     ProfileRepository? profileRepository,
     GradesRepository? gradesRepository,
@@ -48,8 +48,7 @@ class HomeController extends ChangeNotifier {
     BellsRepository? bellsRepository,
     AttendanceRepository? attendanceRepository,
     CacheService? cache,
-  }) : _session = session,
-       _onError = onError,
+  }) : _onError = onError,
        _profileRepository = profileRepository ?? ProfileRepository(),
        _gradesRepository = gradesRepository ?? GradesRepository(),
        _yearsRepository = yearsRepository ?? AcademicYearsRepository(),
@@ -433,7 +432,6 @@ class HomeController extends ChangeNotifier {
 
     try {
       await runBody();
-    } on SessionExpiredException {
     } catch (e) {
       if (_disposed) return;
       setError('Не удалось обновить: $e');

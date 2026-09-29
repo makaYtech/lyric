@@ -29,7 +29,7 @@ class AbsenceDot extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         shape: BoxShape.circle,
         border: Border.all(color: color, width: 1),
       ),

@@ -96,29 +96,29 @@ class _GradesViewState extends State<GradesView> {
           final visible = selected == null
               ? all
               : all.where((s) {
-            final p = s.periodByName(selected);
-            return p != null && p.allGrades.isNotEmpty;
-          }).toList();
+                  final p = s.periodByName(selected);
+                  return p != null && p.allGrades.isNotEmpty;
+                }).toList();
 
           final listView = visible.isEmpty
               ? ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            children: const [
-              SizedBox(height: 80),
-              Center(child: Text('Нет оценок за этот период')),
-            ],
-          )
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  children: const [
+                    SizedBox(height: 80),
+                    Center(child: Text('Нет оценок за этот период')),
+                  ],
+                )
               : ListView.separated(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(16),
-            itemCount: visible.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (_, i) => SubjectGradeCard(
-              grade: visible[i],
-              selectedPeriod: selected,
-            ),
-          );
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  itemCount: visible.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (_, i) => SubjectGradeCard(
+                    grade: visible[i],
+                    selectedPeriod: selected,
+                  ),
+                );
 
           return Column(
             children: [
@@ -160,7 +160,7 @@ class _PeriodSwitcher extends StatelessWidget {
           scrollDirection: Axis.horizontal,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           itemCount: periods.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          separatorBuilder: (_, _) => const SizedBox(width: 8),
           itemBuilder: (_, i) {
             final p = periods[i];
             return ChoiceChip(

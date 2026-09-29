@@ -5,12 +5,7 @@ class GradeDot extends StatelessWidget {
   final double size;
   final VoidCallback? onTap;
 
-  const GradeDot({
-    super.key,
-    required this.value,
-    this.size = 28,
-    this.onTap,
-  });
+  const GradeDot({super.key, required this.value, this.size = 28, this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +15,7 @@ class GradeDot extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: color.withOpacity(0.15),
+        color: color.withValues(alpha: 0.15),
         shape: BoxShape.circle,
         border: Border.all(color: color, width: 1),
       ),
@@ -59,13 +54,13 @@ Color gradeColor(int v) {
 }
 
 Future<void> showGradeDetails(
-    BuildContext context, {
-      required int value,
-      required DateTime? receivedAt,
-      String? comment,
-      String? subject,
-      String? workType,
-    }) {
+  BuildContext context, {
+  required int value,
+  required DateTime? receivedAt,
+  String? comment,
+  String? subject,
+  String? workType,
+}) {
   final theme = Theme.of(context);
   final hasComment = comment != null && comment.trim().isNotEmpty;
   final hasSubject = subject != null && subject.trim().isNotEmpty;

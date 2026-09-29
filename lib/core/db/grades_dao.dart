@@ -1,7 +1,5 @@
 import 'dart:convert';
 
-import 'package:sqflite/sqflite.dart';
-
 import '../../models/grade_slice.dart';
 import '../../models/subject_grade.dart';
 import 'app_database.dart';
@@ -95,11 +93,11 @@ class GradesDao {
   }
 
   Future<List<GradeHistoryEntry>> historyFor(
-      int yearId,
-      String subject,
-      String period,
-      String workType,
-      ) async {
+    int yearId,
+    String subject,
+    String period,
+    String workType,
+  ) async {
     final db = await AppDatabase.instance.database;
     final key = _key(yearId, subject, period, workType);
     final rows = await db.query(
@@ -109,22 +107,24 @@ class GradesDao {
       orderBy: 'changed_at DESC',
     );
     return rows
-        .map((r) => GradeHistoryEntry(
-      grades: (jsonDecode(r['old_grades_json'] as String) as List)
-          .whereType<num>()
-          .map((e) => e.toInt())
-          .toList(),
-      changedAt: DateTime.parse(r['changed_at'] as String),
-    ))
+        .map(
+          (r) => GradeHistoryEntry(
+            grades: (jsonDecode(r['old_grades_json'] as String) as List)
+                .whereType<num>()
+                .map((e) => e.toInt())
+                .toList(),
+            changedAt: DateTime.parse(r['changed_at'] as String),
+          ),
+        )
         .toList();
   }
 
   Future<void> acknowledge(
-      int yearId,
-      String subject,
-      String period,
-      String workType,
-      ) async {
+    int yearId,
+    String subject,
+    String period,
+    String workType,
+  ) async {
     final db = await AppDatabase.instance.database;
     await db.update(
       AppDatabase.tableGrades,

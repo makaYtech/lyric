@@ -1,5 +1,3 @@
-import 'package:sqflite/sqflite.dart';
-
 import '../../models/schedule_override.dart';
 import '../util/date_time.dart';
 import 'app_database.dart';
@@ -10,10 +8,7 @@ import 'app_database.dart';
 /// lessons целиком, а правки пользователя должны это пережить. См. модель
 /// ScheduleOverride — там подробнее про смысл.
 class ScheduleOverridesDao {
-  Future<List<ScheduleOverride>> loadWeek(
-      int yearId,
-      DateTime monday,
-      ) async {
+  Future<List<ScheduleOverride>> loadWeek(int yearId, DateTime monday) async {
     final db = await AppDatabase.instance.database;
     final sunday = monday.add(const Duration(days: 6));
     final rows = await db.query(
@@ -25,10 +20,7 @@ class ScheduleOverridesDao {
     return rows.map(ScheduleOverride.fromRow).toList();
   }
 
-  Future<List<ScheduleOverride>> loadDay(
-      int yearId,
-      DateTime date,
-      ) async {
+  Future<List<ScheduleOverride>> loadDay(int yearId, DateTime date) async {
     final db = await AppDatabase.instance.database;
     final rows = await db.query(
       AppDatabase.tableScheduleOverrides,
@@ -87,15 +79,12 @@ class ScheduleOverridesDao {
 
   /// Удаление всех правок, задевающих конкретный урок — и как primary,
   /// и как secondary.
-  Future<void> deleteForLesson(
-      int yearId,
-      DateTime date,
-      int lessonId,
-      ) async {
+  Future<void> deleteForLesson(int yearId, DateTime date, int lessonId) async {
     final db = await AppDatabase.instance.database;
     await db.delete(
       AppDatabase.tableScheduleOverrides,
-      where: 'year_id = ? AND date = ? '
+      where:
+          'year_id = ? AND date = ? '
           'AND (primary_lesson_id = ? OR secondary_lesson_id = ?)',
       whereArgs: [yearId, isoDate(date), lessonId, lessonId],
     );

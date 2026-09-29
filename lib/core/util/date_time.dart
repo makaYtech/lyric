@@ -8,18 +8,19 @@
 ///
 /// Здесь — единые точки входа для всех этих случаев. Раньше логика была
 /// продублирована в Mark, ScheduleItem, CalendarLesson и сервисах.
+library;
 
 /// "2026-09-07" — формат, который ждут schedule_items и БД.
 String isoDate(DateTime d) =>
     '${d.year.toString().padLeft(4, '0')}-'
-        '${d.month.toString().padLeft(2, '0')}-'
-        '${d.day.toString().padLeft(2, '0')}';
+    '${d.month.toString().padLeft(2, '0')}-'
+    '${d.day.toString().padLeft(2, '0')}';
 
 /// "07.09.2026" — формат, который ждёт marks и student_homeworks.
 String dotDate(DateTime d) =>
     '${d.day.toString().padLeft(2, '0')}.'
-        '${d.month.toString().padLeft(2, '0')}.'
-        '${d.year}';
+    '${d.month.toString().padLeft(2, '0')}.'
+    '${d.year}';
 
 /// "HH:mm" из пары чисел. "09:05", а не "9:5".
 String hhmm(int h, int m) => '${_two(h)}:${_two(m)}';

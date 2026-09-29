@@ -90,7 +90,10 @@ class _HomeworkViewState extends State<HomeworkView>
   }
 
   static bool _hasContent(Homework h) {
-    final d = h.description.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+    final d = h.description.trim().toLowerCase().replaceAll(
+      RegExp(r'\s+'),
+      ' ',
+    );
     return d.isNotEmpty && d != 'не задано';
   }
 
@@ -240,20 +243,22 @@ class _HomeworkViewState extends State<HomeworkView>
                 Expanded(
                   child: items.isEmpty
                       ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    children: const [
-                      SizedBox(height: 80),
-                      Center(child: Text('Нет ДЗ на этот день')),
-                    ],
-                  )
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          children: const [
+                            SizedBox(height: 80),
+                            Center(child: Text('Нет ДЗ на этот день')),
+                          ],
+                        )
                       : ListView.separated(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (_, i) => HomeworkCard(homework: items[i]),
-                  ),
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(16),
+                          itemCount: items.length,
+                          separatorBuilder: (_, _) =>
+                              const SizedBox(height: 10),
+                          itemBuilder: (_, i) =>
+                              HomeworkCard(homework: items[i]),
+                        ),
                 ),
               ],
             ),
@@ -268,10 +273,7 @@ class _ModeSwitcher extends StatelessWidget {
   final bool groupByDue;
   final ValueChanged<bool> onChanged;
 
-  const _ModeSwitcher({
-    required this.groupByDue,
-    required this.onChanged,
-  });
+  const _ModeSwitcher({required this.groupByDue, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -301,10 +303,7 @@ class _ModeSwitcher extends StatelessWidget {
               ],
             ),
           ),
-          Switch(
-            value: groupByDue,
-            onChanged: onChanged,
-          ),
+          Switch(value: groupByDue, onChanged: onChanged),
         ],
       ),
     );
@@ -442,8 +441,8 @@ class _DateChip extends StatelessWidget {
         color: selected
             ? theme.colorScheme.secondary
             : (isToday
-            ? theme.colorScheme.primary
-            : theme.colorScheme.outlineVariant),
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.outlineVariant),
       ),
     );
   }

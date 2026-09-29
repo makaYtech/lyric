@@ -338,7 +338,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
     final isToday = widget.highlightToday && _isToday(day.date);
 
     final todayTint = Color.alphaBlend(
-      theme.colorScheme.primary.withOpacity(0.10),
+      theme.colorScheme.primary.withValues(alpha: 0.10),
       theme.colorScheme.surface,
     );
 
@@ -398,9 +398,9 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
               valueListenable: SchedulePrefs.mergePairs,
               builder: (context, merge, _) => ValueListenableBuilder<bool>(
                 valueListenable: SchedulePrefs.showGaps,
-                builder: (context, _, __) => ValueListenableBuilder<int>(
+                builder: (context, _, _) => ValueListenableBuilder<int>(
                   valueListenable: SchedulePrefs.gapThresholdMinutes,
-                  builder: (context, ___, ____) {
+                  builder: (context, _, _) {
                     final lessons = merge ? _merged() : day.lessons;
                     return _buildContent(
                       injectGaps(

@@ -7,11 +7,7 @@ class SubjectGradeCard extends StatefulWidget {
   final SubjectGrade grade;
   final String? selectedPeriod;
 
-  const SubjectGradeCard({
-    super.key,
-    required this.grade,
-    this.selectedPeriod,
-  });
+  const SubjectGradeCard({super.key, required this.grade, this.selectedPeriod});
 
   @override
   State<SubjectGradeCard> createState() => _SubjectGradeCardState();
@@ -35,7 +31,8 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
         ? null
         : widget.grade.periodByName(widget.selectedPeriod!);
     final workTypes =
-        period?.workTypes ?? widget.grade.periods.expand((p) => p.workTypes).toList();
+        period?.workTypes ??
+        widget.grade.periods.expand((p) => p.workTypes).toList();
     _cachedEntries = _collectEntries(workTypes);
     _cachedEntriesFor = widget.grade;
     _cachedEntriesPeriod = widget.selectedPeriod;
@@ -51,8 +48,8 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
         ? null
         : grade.periodByName(widget.selectedPeriod!);
 
-    final workTypes = period?.workTypes ??
-        grade.periods.expand((p) => p.workTypes).toList();
+    final workTypes =
+        period?.workTypes ?? grade.periods.expand((p) => p.workTypes).toList();
     final avg = period?.average ?? grade.average;
     final entries = _entries();
     final avgColor = _averageColor(avg);
@@ -71,8 +68,9 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
               Expanded(
                 child: Text(
                   grade.name,
-                  style: theme.textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -81,10 +79,7 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
           ),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: _MiniGradesRow(
-              entries: entries,
-              subject: grade.name,
-            ),
+            child: _MiniGradesRow(entries: entries, subject: grade.name),
           ),
           children: [
             const Divider(height: 1),
@@ -100,10 +95,9 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
                 ),
               )
             else
-              ...workTypes.map((w) => _WorkTypeRow(
-                workType: w,
-                subject: grade.name,
-              )),
+              ...workTypes.map(
+                (w) => _WorkTypeRow(workType: w, subject: grade.name),
+              ),
           ],
         ),
       ),
@@ -115,12 +109,14 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
     final out = <_MiniGradeEntry>[];
     for (final w in workTypes) {
       for (var i = 0; i < w.grades.length; i++) {
-        out.add(_MiniGradeEntry(
-          value: w.grades[i],
-          receivedAt: i < w.dates.length ? w.dates[i] : null,
-          comment: w.commentAt(i),
-          workType: w.workType,
-        ));
+        out.add(
+          _MiniGradeEntry(
+            value: w.grades[i],
+            receivedAt: i < w.dates.length ? w.dates[i] : null,
+            comment: w.commentAt(i),
+            workType: w.workType,
+          ),
+        );
       }
     }
     return out;
@@ -160,15 +156,13 @@ class _AverageBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text(
         value == null || value == 0 ? '—' : value!.toStringAsFixed(2),
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
-        ),
+        style: Theme.of(context).textTheme.titleMedium
+            ?.copyWith(color: color, fontWeight: FontWeight.w700),
       ),
     );
   }
@@ -178,16 +172,12 @@ class _MiniGradesRow extends StatelessWidget {
   final List<_MiniGradeEntry> entries;
   final String? subject;
 
-  const _MiniGradesRow({
-    required this.entries,
-    this.subject,
-  });
+  const _MiniGradesRow({required this.entries, this.subject});
 
   @override
   Widget build(BuildContext context) {
     if (entries.isEmpty) {
-      return Text('Нет оценок',
-          style: Theme.of(context).textTheme.bodySmall);
+      return Text('Нет оценок', style: Theme.of(context).textTheme.bodySmall);
     }
     final start = entries.length > 8 ? entries.length - 8 : 0;
     final shown = entries.sublist(start);
@@ -212,8 +202,10 @@ class _MiniGradesRow extends StatelessWidget {
         if (entries.length > 8)
           Padding(
             padding: const EdgeInsets.only(left: 4),
-            child: Text('+${entries.length - 8}',
-                style: Theme.of(context).textTheme.bodySmall),
+            child: Text(
+              '+${entries.length - 8}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
       ],
     );
@@ -249,8 +241,9 @@ class _WorkTypeRow extends StatelessWidget {
               if (avg != null)
                 Text(
                   avg.toStringAsFixed(2),
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(fontWeight: FontWeight.w600),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
             ],
           ),
