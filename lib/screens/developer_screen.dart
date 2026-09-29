@@ -326,22 +326,6 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
     await _run(_tools.resetDeviceKey, successMessage: 'device_key сброшен');
   }
 
-  // ── Моя школа ─────────────────────────────────────────────────────────
-
-  Future<void> _clearMySchool() async {
-    final ok = await _confirm(
-      title: 'Сбросить токены «Моей школы»?',
-      body:
-          'Если сейчас активен бэкенд «Моя школа», потребуется '
-          'войти заново. Для ЭПОС-режима — просто очистка мусора.',
-    );
-    if (!ok) return;
-    await _run(
-      _tools.clearMySchoolTokens,
-      successMessage: 'Токены «Моей школы» сброшены',
-    );
-  }
-
   // ── Кэш ───────────────────────────────────────────────────────────────
 
   Future<void> _clearProfileCache() async {
@@ -577,31 +561,6 @@ class _DeveloperScreenState extends State<DeveloperScreen> {
                     subtitle: 'Сгенерируется заново при следующем входе',
                     enabled: !_busy,
                     onTap: _resetDeviceKey,
-                  ),
-                ],
-              ),
-
-              _Section(
-                title: 'Моя школа',
-                children: [
-                  FutureBuilder<DebugSnapshot>(
-                    future: _snapshotFuture,
-                    builder: (_, snap) => ListTile(
-                      leading: const Icon(Icons.school_outlined),
-                      title: const Text('Токены'),
-                      subtitle: Text(
-                        snap.data?.mySchoolTokensPresent == true
-                            ? 'есть'
-                            : 'нет',
-                      ),
-                    ),
-                  ),
-                  _ActionTile(
-                    icon: Icons.logout,
-                    title: 'Сбросить токены «Моей школы»',
-                    subtitle: 'acc_t / u / studentId',
-                    enabled: !_busy,
-                    onTap: _clearMySchool,
                   ),
                 ],
               ),

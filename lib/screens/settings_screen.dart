@@ -3,8 +3,6 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../core/auth/session_notifier.dart';
 import '../core/auth/session_refresh_service.dart';
-import '../core/backend/backends.dart';
-import '../core/backend/backends_prefs.dart';
 import '../core/cache/cache_service.dart';
 import '../core/db/app_database.dart';
 import '../core/settings/avatar_storage.dart';
@@ -16,7 +14,6 @@ import '../models/teacher.dart';
 import '../widgets/common/person_avatar.dart';
 import 'developer_screen.dart';
 import 'login_screen.dart';
-import '../core/auth/myschool_token_storage.dart';
 
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -79,42 +76,6 @@ class SettingsScreen extends StatelessWidget {
     await AppDatabase.instance.clearAll();
     SessionNotifier.instance.reset();
 
-    if (!context.mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => LoginScreen(themeController: themeController),
-      ),
-      (route) => false,
-    );
-  }
-
-  Future<void> _pickBackend(BuildContext context) async {
-    final currentId = BackendPrefs.current.value;
-
-    final chosen = await showDialog<String>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Endpoint service'),
-        children: [
-          for (final b in Backends.all)
-            RadioListTile<String>(
-              title: Text(b.displayName),
-              subtitle: Text(b.description),
-              value: b.id,
-              groupValue: currentId,
-              onChanged: b.available ? (v) => Navigator.of(ctx).pop(v) : null,
-            ),
-        ],
-      ),
-    );
-
-    if (chosen == null || chosen == currentId) return;
-
-    await BackendPrefs.set(chosen);
-
-    await SessionRefreshService.instance.clear();
-    await MySchoolTokenStorage().clear();
-    AvatarStorage.invalidateAll();
     if (!context.mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(
@@ -683,29 +644,7 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
 
-            // 5. Источник данных
-            _SectionHeader(
-              icon: Icons.cloud_outlined,
-              title: 'Источник данных',
-            ),
-            _SettingsCard(
-              children: [
-                ValueListenableBuilder<String>(
-                  valueListenable: BackendPrefs.current,
-                  builder: (context, currentId, _) {
-                    final info = Backends.byId(currentId);
-                    return ListTile(
-                      title: const Text('Endpoint service'),
-                      subtitle: Text(info.displayName),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _pickBackend(context),
-                    );
-                  },
-                ),
-              ],
-            ),
-
-            // 6. Аккаунт
+            // 5. Аккаунт
             _SectionHeader(
               icon: Icons.account_circle_outlined,
               title: 'Аккаунт',
@@ -728,7 +667,7 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
 
-            // 7. О приложении
+            // 6. О приложении
             _SectionHeader(icon: Icons.info_outline, title: 'О приложении'),
             _SettingsCard(
               children: [
@@ -760,7 +699,7 @@ class SettingsScreen extends StatelessWidget {
               ],
             ),
 
-            // 8. Для разработчика
+            // 7. Для разработчика
             _SectionHeader(
               icon: Icons.bug_report_outlined,
               title: 'Для разработчика',

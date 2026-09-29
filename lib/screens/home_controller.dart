@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
 import '../core/auth/session_refresh_service.dart';
-import '../core/backend/backends_prefs.dart';
 import '../core/cache/cache_service.dart';
 import '../core/settings/homework_prefs.dart';
 import '../core/settings/schedule_prefs.dart';
@@ -230,7 +229,6 @@ class HomeController extends ChangeNotifier {
     await SchedulePrefs.load();
     await HomeworkPrefs.load();
     await TeacherPrefs.load();
-    await BackendPrefs.load();
     SchedulePrefs.showOverrides.addListener(_onShowOverridesChanged);
 
     try {
@@ -238,8 +236,27 @@ class HomeController extends ChangeNotifier {
     } catch (e) {
       debugPrint('Кэш не загрузился: $e');
     }
+    await _ensureSessionComplete();
     await _loadBells();
     await refreshAll();
+  }
+
+  /// Если в хранилище лежит сессия нового flow без cookies (или без
+  /// ключевых auth_token/profile_id) — прогоняем exchange через
+  /// AuthCoordinator. Типичный случай: пользователь обновился со старой
+  /// версии приложения, которая cookies не сохраняла.
+  ///
+  /// Если backfill не удался (сеть/authDead) — молча идём дальше:
+  /// refreshAll() всё равно поймает 401 и сработает обычный путь renew,
+  /// а при authDead покажется reauth-sheet.
+  Future<void> _ensureSessionComplete() async {
+    final current = AuthCoordinator.instance.session ?? _session;
+    if (!current.needsCookieBackfill) return;
+    try {
+      await AuthCoordinator.instance.renew();
+    } catch (e) {
+      debugPrint('backfill cookies не удался: $e');
+    }
   }
 
   @override

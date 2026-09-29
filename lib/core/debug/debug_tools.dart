@@ -1,10 +1,8 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../auth/auth_coordinator.dart';
 import '../auth/device_token_auth.dart';
 import '../auth/epos_session.dart';
-import '../auth/myschool_token_storage.dart';
 import '../auth/session_notifier.dart';
 import '../auth/session_refresh_service.dart';
 import '../cache/cache_service.dart';
@@ -17,13 +15,8 @@ import '../settings/avatar_storage.dart';
 class DebugSnapshot {
   final EposSession? epos;
   final String? deviceKey;
-  final bool mySchoolTokensPresent;
 
-  const DebugSnapshot({
-    this.epos,
-    this.deviceKey,
-    this.mySchoolTokensPresent = false,
-  });
+  const DebugSnapshot({this.epos, this.deviceKey});
 
   bool get hasEposSession => epos != null;
 
@@ -48,12 +41,7 @@ class DebugTools {
   Future<DebugSnapshot> snapshot() async {
     final epos = await SessionRefreshService.instance.load();
     final key = await DeviceTokenAuthService.instance.readDeviceKey();
-    final ms = await MySchoolTokenStorage().load();
-    return DebugSnapshot(
-      epos: epos,
-      deviceKey: key,
-      mySchoolTokensPresent: ms != null,
-    );
+    return DebugSnapshot(epos: epos, deviceKey: key);
   }
 
   // ── Отравление (испортить значение, сохранив ключ) ────────────────────
@@ -169,10 +157,6 @@ class DebugTools {
   Future<void> resetDeviceKey() =>
       DeviceTokenAuthService.instance.resetDeviceKey();
 
-  // ── Моя школа ──────────────────────────────────────────────────────────
-
-  Future<void> clearMySchoolTokens() => MySchoolTokenStorage().clear();
-
   // ── Кэш (SharedPreferences) ────────────────────────────────────────────
 
   Future<void> clearProfileCache() => _cache.remove('profile');
@@ -242,7 +226,6 @@ class DebugTools {
   Future<void> fullWipe({bool alsoDeviceKey = false}) async {
     AuthCoordinator.instance.clear();
     await SessionRefreshService.instance.clear();
-    await MySchoolTokenStorage().clear();
     await _cache.clearAll();
     AvatarStorage.invalidateAll();
     await AppDatabase.instance.clearAll();
@@ -263,12 +246,4 @@ class DebugTools {
     AuthCoordinator.instance.setSession(next);
     SessionNotifier.instance.reset();
   }
-}
-
-/// Помощник для UI: не использовать в проде.
-Future<String?> _unusedReadSecure(String key) async {
-  const storage = FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
-  return storage.read(key: key);
 }

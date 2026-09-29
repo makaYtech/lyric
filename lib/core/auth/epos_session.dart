@@ -9,8 +9,8 @@ import '../../services/auth_service.dart';
 /// fallback для legacy OAuth-сессий.
 ///
 /// Что именно на руках — определяется наличием [deviceToken]:
-///   deviceToken != null → новый flow, refresh = GET /authenticate
-///   deviceToken == null → старый flow, refresh = OAuth refresh_token
+///   deviceToken непустой → новый flow, refresh = GET /authenticate
+///   deviceToken null/''   → старый flow, refresh = OAuth refresh_token
 class EposSession {
   /// UUID из diaryperm://redirect?token=...
   /// Нужен для POST /authenticate/student_profile (в body auth_token
@@ -20,6 +20,7 @@ class EposSession {
   final String profileId;
 
   /// UUID, который уходит в заголовке token при GET /authenticate.
+  /// Пустая строка или null трактуются как «device-token отсутствует».
   final String? deviceToken;
 
   /// Все cookies, установленные сервером. Ключ — имя, значение — значение.
@@ -65,11 +66,29 @@ class EposSession {
   ///
   /// Legacy-сессию обновляем за 2 минуты до истечения access_token.
   bool get needsRefresh {
-    if (deviceToken != null) return false;
+    if (deviceToken?.isNotEmpty == true) return false;
     final exp = accessExpiresAt;
     if (exp == null) return false;
     return DateTime.now().isAfter(exp.subtract(const Duration(minutes: 2)));
   }
+
+  /// Полнота сессии нового flow: есть непустой deviceToken И в cookies
+  /// есть и auth_token, и profile_id. Без этого API-запросы заведомо
+  /// провалятся, но exchange по deviceToken вернёт всё нужное.
+  bool get isCompleteForApi =>
+      deviceToken?.isNotEmpty == true &&
+      cookies.containsKey('auth_token') &&
+      cookies.containsKey('profile_id');
+
+  /// Нужно ли дотянуть cookies через exchange по deviceToken.
+  /// True для сессий нового flow, где cookies отсутствуют или в них нет
+  /// ключевых полей — типичный случай при переходе со старой версии
+  /// приложения, которая эти cookies не сохраняла.
+  ///
+  /// Legacy-сессии (deviceToken отсутствует) сюда не попадают: они ходят
+  /// через заголовки Auth-Token/Profile-Id, и cookie-backfill им не нужен.
+  bool get needsCookieBackfill =>
+      deviceToken?.isNotEmpty == true && !isCompleteForApi;
 
   EposSession copyWith({
     String? authToken,

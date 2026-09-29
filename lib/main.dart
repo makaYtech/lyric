@@ -7,16 +7,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'core/auth/auth_config.dart';
 import 'core/auth/epos_session.dart';
-import 'core/auth/myschool_token_storage.dart';
 import 'core/auth/session_refresh_service.dart';
-import 'core/backend/backends.dart';
-import 'core/backend/backends_prefs.dart';
 import 'core/settings/update_prefs.dart';
 import 'core/theme/theme_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
-import 'screens/myschool_home_screen.dart';
-import 'services/myschool/myschool_tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,21 +20,8 @@ Future<void> main() async {
     databaseFactory = databaseFactoryFfi;
   }
   final themeController = await ThemeController.load();
-  await BackendPrefs.load();
   await AuthConfig.load();
   await UpdatePrefs.load();
-
-  if (BackendPrefs.current.value == Backends.mySchool) {
-    final msTokens = await MySchoolTokenStorage().load();
-    runApp(
-      EposApp(
-        themeController: themeController,
-        initialEposSession: null,
-        initialMySchoolTokens: msTokens,
-      ),
-    );
-    return;
-  }
 
   // Пробуем поднять сессию из защищённого хранилища.
   // Если refresh_token жив — ensureFresh тихо обновит access,
@@ -50,24 +32,18 @@ Future<void> main() async {
   }
 
   runApp(
-    EposApp(
-      themeController: themeController,
-      initialEposSession: session,
-      initialMySchoolTokens: null,
-    ),
+    EposApp(themeController: themeController, initialEposSession: session),
   );
 }
 
 class EposApp extends StatelessWidget {
   final ThemeController themeController;
   final EposSession? initialEposSession;
-  final MySchoolTokens? initialMySchoolTokens;
 
   const EposApp({
     super.key,
     required this.themeController,
     required this.initialEposSession,
-    this.initialMySchoolTokens,
   });
 
   @override
@@ -77,20 +53,13 @@ class EposApp extends StatelessWidget {
         return AnimatedBuilder(
           animation: themeController,
           builder: (context, _) {
-            Widget home;
-            if (initialMySchoolTokens != null) {
-              home = MySchoolHomeScreen(
-                tokens: initialMySchoolTokens!,
-                themeController: themeController,
-              );
-            } else if (initialEposSession != null) {
-              home = HomeScreen(
-                session: initialEposSession!,
-                themeController: themeController,
-              );
-            } else {
-              home = LoginScreen(themeController: themeController);
-            }
+            final home = initialEposSession != null
+                ? HomeScreen(
+                    session: initialEposSession!,
+                    themeController: themeController,
+                  )
+                : LoginScreen(themeController: themeController);
+
             return MaterialApp(
               title: 'ЭПОС',
               themeMode: themeController.mode,

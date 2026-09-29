@@ -4,16 +4,11 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../core/auth/auth_config.dart';
 import '../core/auth/epos_oauth_client.dart';
 import '../core/auth/session_refresh_service.dart';
-import '../core/backend/backends.dart';
-import '../core/backend/backends_prefs.dart';
 import '../core/theme/theme_controller.dart';
 import 'device_login_screen.dart';
 import 'home_screen.dart';
-import 'myschool_login_screen.dart';
 
-/// Диспатчер входа: по бэкенду → по AuthConfig.useDeviceTokenFlow.
-/// Сам login здесь только выбирает экран — вся реальная работа либо в
-/// DeviceLoginScreen (новый flow), либо в _EposLoginView (legacy).
+/// Диспатчер входа: по AuthConfig.useDeviceTokenFlow.
 ///
 /// ValueListenableBuilder нужен потому, что флаг теперь меняется в
 /// рантайме из DeveloperScreen. Если пользователь переключит flow и
@@ -25,21 +20,13 @@ class LoginScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<String>(
-      valueListenable: BackendPrefs.current,
-      builder: (context, backend, _) {
-        if (backend == Backends.mySchool) {
-          return MySchoolLoginScreen(themeController: themeController);
+    return ValueListenableBuilder<bool>(
+      valueListenable: AuthConfig.useDeviceTokenFlow,
+      builder: (context, useDevice, _) {
+        if (useDevice) {
+          return DeviceLoginScreen(themeController: themeController);
         }
-        return ValueListenableBuilder<bool>(
-          valueListenable: AuthConfig.useDeviceTokenFlow,
-          builder: (context, useDevice, _) {
-            if (useDevice) {
-              return DeviceLoginScreen(themeController: themeController);
-            }
-            return _EposLoginView(themeController: themeController);
-          },
-        );
+        return _EposLoginView(themeController: themeController);
       },
     );
   }
@@ -86,12 +73,10 @@ class _EposLoginViewState extends State<_EposLoginView> {
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(NavigationDelegate(
-        onPageFinished: _onPageFinished,
-      ))
-      ..loadRequest(
-        _oauth.buildAuthUrl(challenge: _challenge, state: _state),
-      );
+      ..setNavigationDelegate(
+        NavigationDelegate(onPageFinished: _onPageFinished),
+      )
+      ..loadRequest(_oauth.buildAuthUrl(challenge: _challenge, state: _state));
   }
 
   Future<void> _onPageFinished(String url) async {
@@ -129,10 +114,12 @@ class _EposLoginViewState extends State<_EposLoginView> {
     // молча, без Госуслуг.
     _phase = _Phase.eduEpos;
     if (mounted) setState(() => _status = 'Получение сессии ЭПОС...');
-    await _controller.loadRequest(Uri.parse(
-      'https://edu-epos.permkrai.ru/authenticate/oauth'
-          '?mode=epos&groupRole=student',
-    ));
+    await _controller.loadRequest(
+      Uri.parse(
+        'https://edu-epos.permkrai.ru/authenticate/oauth'
+        '?mode=epos&groupRole=student',
+      ),
+    );
   }
 
   Future<void> _handleEduPhase(String url) async {
@@ -186,8 +173,9 @@ class _EposLoginViewState extends State<_EposLoginView> {
 
   Future<Map<String, String>> _readDocumentCookies() async {
     try {
-      final raw = await _controller
-          .runJavaScriptReturningResult('document.cookie');
+      final raw = await _controller.runJavaScriptReturningResult(
+        'document.cookie',
+      );
       final str = raw.toString().replaceAll(RegExp(r'^"|"$'), '');
       final out = <String, String>{};
       for (final pair in str.split('; ')) {
