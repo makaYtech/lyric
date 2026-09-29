@@ -35,7 +35,7 @@ import '../core/auth/auth_coordinator.dart';
 class HomeController extends ChangeNotifier {
   HomeController({
     required this._session,
-    required void Function(String message) onError,
+    required this._onError,
     ProfileRepository? profileRepository,
     GradesRepository? gradesRepository,
     AcademicYearsRepository? yearsRepository,
@@ -47,8 +47,7 @@ class HomeController extends ChangeNotifier {
     BellsRepository? bellsRepository,
     AttendanceRepository? attendanceRepository,
     CacheService? cache,
-  }) : _onError = onError,
-       _profileRepository = profileRepository ?? ProfileRepository(),
+  }) : _profileRepository = profileRepository ?? ProfileRepository(),
        _gradesRepository = gradesRepository ?? GradesRepository(),
        _yearsRepository = yearsRepository ?? AcademicYearsRepository(),
        _scheduleRepository = scheduleRepository ?? ScheduleRepository(),
