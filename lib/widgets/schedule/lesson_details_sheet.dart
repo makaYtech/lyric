@@ -141,6 +141,26 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
                                 ),
                               ),
                             ],
+                            if (lesson.isEc) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 1,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.tertiaryContainer,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  'внеурочная деятельность',
+                                  style: theme.textTheme.labelSmall?.copyWith(
+                                    color:
+                                        theme.colorScheme.onTertiaryContainer,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ],
                         ),
                         if (hasRoom) ...[
@@ -277,6 +297,7 @@ class _LessonDetailsSheetState extends State<LessonDetailsSheet> {
 
               // Своя работа — по текущему ДЗ (индекс PageView совпадает
               // с индексом в studentHomeworkIds, списки строятся вместе).
+              // Для EC-уроков studentHomeworkIds пустые — секция скрыта.
               if (_currentStudentHomeworkId() != 0) ...[
                 const SizedBox(height: 16),
                 const Divider(height: 1),

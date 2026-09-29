@@ -3,19 +3,16 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../models/day_schedule.dart';
+import '../../models/homework_attachment.dart';
 import '../../models/lesson.dart';
 import '../util/date_time.dart';
 import 'app_database.dart';
-import '../../models/homework_attachment.dart';
 
 /// Всё, что связано с расписанием и ДЗ, живёт здесь одной строкой на урок.
 /// Никакой истории — расписание переносится/меняется, старое значение
 /// никому не интересно, просто перезаписываем по id урока.
 class ScheduleDao {
-  Future<void> saveWeek(
-      int yearId,
-      List<DaySchedule> days,
-      ) async {
+  Future<void> saveWeek(int yearId, List<DaySchedule> days) async {
     final db = await AppDatabase.instance.database;
     final now = DateTime.now().toIso8601String();
 
@@ -41,29 +38,24 @@ class ScheduleDao {
         final dateStr = isoDate(day.date);
         for (final lesson in day.lessons) {
           if (lesson.id == null) continue; // мок/данные без id не сохраняем
-          batch.insert(
-            AppDatabase.tableLessons,
-            {
-              'id': lesson.id,
-              'year_id': yearId,
-              'date': dateStr,
-              'start_time': lesson.startTime,
-              'end_time': lesson.endTime,
-              'subject': lesson.subject,
-              'teacher': lesson.teacher,
-              'teacher_id': lesson.teacherId,
-              'room': lesson.room,
-              'homework': jsonEncode(lesson.homeworks),
-              'updated_at': now,
-              'attachments_json': jsonEncode(
-                lesson.attachments.map((a) => a.toJson()).toList(),
-              ),
-              'student_homework_ids_json': jsonEncode(
-                lesson.studentHomeworkIds
-              ),
-            },
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          batch.insert(AppDatabase.tableLessons, {
+            'id': lesson.id,
+            'year_id': yearId,
+            'date': dateStr,
+            'start_time': lesson.startTime,
+            'end_time': lesson.endTime,
+            'subject': lesson.subject,
+            'teacher': lesson.teacher,
+            'teacher_id': lesson.teacherId,
+            'room': lesson.room,
+            'homework': jsonEncode(lesson.homeworks),
+            'updated_at': now,
+            'attachments_json': jsonEncode(
+              lesson.attachments.map((a) => a.toJson()).toList(),
+            ),
+            'student_homework_ids_json': jsonEncode(lesson.studentHomeworkIds),
+            'is_ec': lesson.isEc ? 1 : 0,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
         }
       }
       await batch.commit(noResult: true);
@@ -84,20 +76,23 @@ class ScheduleDao {
     final byDate = <String, List<Lesson>>{};
     for (final row in rows) {
       final dateStr = row['date'] as String;
-      byDate.putIfAbsent(dateStr, () => []).add(
-        Lesson(
-          id: row['id'] as int?,
-          startTime: row['start_time'] as String,
-          endTime: row['end_time'] as String,
-          subject: row['subject'] as String,
-          teacher: row['teacher'] as String?,
-          teacherId: row['teacher_id'] as int?,
-          room: row['room'] as String?,
-          homeworks: Lesson.decodeHomeworks(row['homework'] as String?),
-          attachments: _decodeAttachments(row['attachments_json']),
-          studentHomeworkIds: _decodeIds(row['student_homework_ids_json']),
-        ),
-      );
+      byDate
+          .putIfAbsent(dateStr, () => [])
+          .add(
+            Lesson(
+              id: row['id'] as int?,
+              startTime: row['start_time'] as String,
+              endTime: row['end_time'] as String,
+              subject: row['subject'] as String,
+              teacher: row['teacher'] as String?,
+              teacherId: row['teacher_id'] as int?,
+              room: row['room'] as String?,
+              homeworks: Lesson.decodeHomeworks(row['homework'] as String?),
+              attachments: _decodeAttachments(row['attachments_json']),
+              studentHomeworkIds: _decodeIds(row['student_homework_ids_json']),
+              isEc: (row['is_ec'] as int? ?? 0) == 1,
+            ),
+          );
     }
 
     return List.generate(6, (i) {

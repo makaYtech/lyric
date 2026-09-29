@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../core/auth/auth_coordinator.dart';
 import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
 import '../core/auth/session_refresh_service.dart';
@@ -11,6 +14,7 @@ import '../models/academic_year.dart';
 import '../models/attendance.dart';
 import '../models/bells_timetable.dart';
 import '../models/day_schedule.dart';
+import '../models/ec_homework.dart';
 import '../models/homework.dart';
 import '../models/lesson.dart';
 import '../models/mark.dart';
@@ -29,8 +33,8 @@ import '../repositories/schedule_repository.dart';
 import '../repositories/student_groups_repository.dart';
 import '../repositories/teachers_repository.dart';
 import '../services/auth_service.dart';
+import '../services/ec_homework_service.dart';
 import '../services/session_expired_exception.dart';
-import '../core/auth/auth_coordinator.dart';
 
 class HomeController extends ChangeNotifier {
   HomeController({
@@ -47,6 +51,7 @@ class HomeController extends ChangeNotifier {
     BellsRepository? bellsRepository,
     AttendanceRepository? attendanceRepository,
     CacheService? cache,
+    EcHomeworkService? ecHomeworkService,
   }) : _profileRepository = profileRepository ?? ProfileRepository(),
        _gradesRepository = gradesRepository ?? GradesRepository(),
        _yearsRepository = yearsRepository ?? AcademicYearsRepository(),
@@ -57,6 +62,7 @@ class HomeController extends ChangeNotifier {
        _teachersRepository = teachersRepository ?? TeachersRepository(),
        _bellsRepository = bellsRepository ?? BellsRepository(),
        _attendanceRepository = attendanceRepository ?? AttendanceRepository(),
+       _ecHomeworkService = ecHomeworkService ?? EcHomeworkService(),
        _cache = cache ?? CacheService() {
     _weekStart = _currentMonday();
   }
@@ -77,10 +83,12 @@ class HomeController extends ChangeNotifier {
   final TeachersRepository _teachersRepository;
   final BellsRepository _bellsRepository;
   final AttendanceRepository _attendanceRepository;
+  final EcHomeworkService _ecHomeworkService;
   final CacheService _cache;
 
   static const _selectedYearKey = 'selected_academic_year_id';
   static const _studentTeacherIdsKey = 'student_teacher_ids';
+  static const _ecGroupIdsKey = 'ec_group_ids';
   static const _fallbackYearId = 14;
   static const _bellsTimetableIdFallback = 124412;
 
@@ -142,6 +150,12 @@ class HomeController extends ChangeNotifier {
 
   List<int> _groupIds = [];
 
+  /// id внеурочных EC-групп. Собираются из ответа
+  /// /ec/api/ec_student_homeworks — там они есть в каждой записи, а в
+  /// student_profiles их нет. Если пусто — EC-расписание не запрашивается.
+  List<int> _ecGroupIds = const [];
+  List<int> get ecGroupIds => _ecGroupIds;
+
   List<DaySchedule>? _schedule;
   List<DaySchedule>? get schedule => _schedule;
   DateTime? _scheduleUpdated;
@@ -182,6 +196,13 @@ class HomeController extends ChangeNotifier {
   /// в этом сеансе приложения. Сбрасывается при холодном старте.
   bool _scheduleAutoScrolledOnce = false;
   bool get scheduleAutoScrolledOnce => _scheduleAutoScrolledOnce;
+
+  /// id класса — нужен для /ec/api/ec_schedule_items. Достаётся из
+  /// профиля, поэтому до его загрузки пусто.
+  List<int> get _classUnitIds {
+    final id = _profile?.classUnitId;
+    return id == null ? const [] : [id];
+  }
 
   void markScheduleAutoScrolled() {
     if (_scheduleAutoScrolledOnce) return;
@@ -345,6 +366,7 @@ class HomeController extends ChangeNotifier {
     final groupsFut = _groupsRepository.loadCached();
     final yearIdFut = _cache.loadInt(_selectedYearKey);
     final teacherIdsFut = _cache.loadString(_studentTeacherIdsKey);
+    final ecGroupIdsFut = _cache.loadString(_ecGroupIdsKey);
 
     final profile = await profileFut;
     final profileUpdated = await profileUpdFut;
@@ -352,6 +374,7 @@ class HomeController extends ChangeNotifier {
     final groups = await groupsFut;
     final savedYearId = await yearIdFut;
     final teacherIdsRaw = await teacherIdsFut;
+    final ecGroupIdsRaw = await ecGroupIdsFut;
 
     if (teacherIdsRaw != null && teacherIdsRaw.isNotEmpty) {
       _studentTeacherIds = teacherIdsRaw
@@ -359,6 +382,14 @@ class HomeController extends ChangeNotifier {
           .map(int.tryParse)
           .whereType<int>()
           .toSet();
+    }
+
+    if (ecGroupIdsRaw != null && ecGroupIdsRaw.isNotEmpty) {
+      _ecGroupIds = ecGroupIdsRaw
+          .split(',')
+          .map(int.tryParse)
+          .whereType<int>()
+          .toList();
     }
 
     final yearId = savedYearId ?? _currentYearIdFrom(years) ?? _fallbackYearId;
@@ -596,12 +627,46 @@ class HomeController extends ChangeNotifier {
         final sunday = monday.add(const Duration(days: 6));
         final yearId = _selectedYearId;
 
+        // EC-ДЗ тянем в этом же заходе: из него собираем ec_group_ids
+        // для расписания внеурочки. Если на этой неделе их нет —
+        // оставляем старые (уже лежат в _ecGroupIds из prefs).
+        final ecHomeworksFut = _ecHomeworkService.fetchEcHomeworks(
+          tokens,
+          from: monday,
+          to: sunday,
+          academicYearId: yearId,
+        );
+
         final results = await Future.wait<Object>([
-          _scheduleRepository.refresh(tokens, monday, yearId, _groupIds),
+          _scheduleRepository.refresh(
+            tokens,
+            monday,
+            yearId,
+            _groupIds,
+            ecGroupIds: _ecGroupIds,
+            classUnitIds: _classUnitIds,
+          ),
           _marksRepository.refresh(tokens, yearId, from: monday, to: sunday),
+          ecHomeworksFut,
         ]);
         if (myToken != _scheduleToken || _disposed) return;
         if (yearId != _selectedYearId || monday != _weekStart) return;
+
+        // Обновляем ec_group_ids, если из ДЗ вытащили что-то новое.
+        // В этом проходе EC-часть расписания была пустой (если групп
+        // ещё не знали) — сделаем ещё один заход с новыми группами.
+        final ecHomeworks = results[2] as List<EcHomework>;
+        final newEcGroups = <int>{
+          for (final h in ecHomeworks)
+            if (h.ecGroupId != null) h.ecGroupId!,
+        };
+        final groupsChanged =
+            newEcGroups.isNotEmpty &&
+            !_sameSet(newEcGroups, _ecGroupIds.toSet());
+        if (groupsChanged) {
+          _ecGroupIds = newEcGroups.toList();
+          await _cache.saveString(_ecGroupIdsKey, _ecGroupIds.join(','));
+        }
 
         final schedule = results[0] as List<DaySchedule>;
         final marks = results[1] as List<Mark>;
@@ -626,10 +691,24 @@ class HomeController extends ChangeNotifier {
         _marks = marks;
         _scheduleUpdated = updated;
         await _refreshOverridesMeta();
+
+        // EC-группы только что узнали — сейчас EC-расписание
+        // отсутствует. Делаем ещё один тихий заход, чтобы подтянуть его.
+        if (groupsChanged && _ecGroupIds.isNotEmpty) {
+          unawaited(refreshSchedule(silent: true));
+        }
       },
       errorToast: 'Не удалось обновить расписание',
       silent: silent,
     );
+  }
+
+  static bool _sameSet(Set<int> a, Set<int> b) {
+    if (a.length != b.length) return false;
+    for (final x in a) {
+      if (!b.contains(x)) return false;
+    }
+    return true;
   }
 
   Future<void> refreshHomeworks({bool silent = false}) => _runRefresh(
@@ -870,6 +949,9 @@ class HomeController extends ChangeNotifier {
     _teachers = null;
     _teachersUpdated = null;
     _attendances = null;
+    // EC-группы привязаны к году — сбрасываем, соберутся заново
+    // из ec_student_homeworks.
+    _ecGroupIds = const [];
     gradesTick.value++;
     homeworksTick.value++;
     profileTick.value++;
@@ -877,6 +959,7 @@ class HomeController extends ChangeNotifier {
     _notify();
 
     await _cache.saveInt(_selectedYearKey, yearId);
+    await _cache.saveString(_ecGroupIdsKey, '');
     if (myToken != _yearToken || _disposed) return;
 
     final cachedGrades = await _gradesRepository.loadCached(yearId);

@@ -7,11 +7,16 @@ class StudentProfile {
   final String className;
   final String curriculumName;
 
+  /// id класса (class_unit.id). Нужен для /ec/api/ec_schedule_items —
+  /// без class_unit_ids сервер может отдать пустой список внеурочки.
+  final int? classUnitId;
+
   StudentProfile({
     required this.schoolNames,
     required this.userName,
     required this.className,
     required this.curriculumName,
+    this.classUnitId,
   });
 
   factory StudentProfile.fromJson(Map<String, dynamic> json) {
@@ -23,6 +28,7 @@ class StudentProfile {
       userName: json['user_name'] as String? ?? '—',
       className: classUnit?['name'] as String? ?? '—',
       curriculumName: curricula?['name'] as String? ?? '—',
+      classUnitId: classUnit?['id'] as int? ?? json['class_unit_id'] as int?,
     );
   }
 
@@ -49,7 +55,8 @@ class StudentProfile {
   Map<String, dynamic> toJson() => {
     'school_names': schoolNames,
     'user_name': userName,
-    'class_unit': {'name': className},
+    'class_unit': {'name': className, 'id': classUnitId},
+    'class_unit_id': classUnitId,
     'curricula': {'name': curriculumName},
   };
 }

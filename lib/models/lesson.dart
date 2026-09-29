@@ -27,6 +27,13 @@ class Lesson {
   /// startTime/endTime. В БД НЕ сохраняется, вычисляется на лету.
   final bool isGap;
 
+  /// Внеурочное занятие из /ec/api/ec_schedule_items («Разговоры о
+  /// важном», «Россия — мои горизонты» и т.п.). Отличается источником
+  /// данных — обычный урок приходит из /jersey/api/schedule_items.
+  /// В UI помечается чипом «внеурочная деятельность», чтобы визуально не смешивать
+  /// с обычной программой.
+  final bool isEc;
+
   const Lesson({
     this.id,
     this.secondaryId,
@@ -44,6 +51,7 @@ class Lesson {
     this.studentHomeworkIds = const [],
     this.pairOverride,
     this.isGap = false,
+    this.isEc = false,
   });
 
   /// Длительность в минутах. Для окна это длина разрыва.
@@ -71,25 +79,26 @@ class Lesson {
     List<int>? studentHomeworkIds,
     LessonPairOverride? pairOverride,
     bool? isGap,
-  }) =>
-      Lesson(
-        id: id ?? this.id,
-        secondaryId: secondaryId ?? this.secondaryId,
-        startTime: startTime ?? this.startTime,
-        endTime: endTime ?? this.endTime,
-        subject: subject ?? this.subject,
-        subjectId: subjectId ?? this.subjectId,
-        homeworks: homeworks ?? this.homeworks,
-        attachments: attachments ?? this.attachments,
-        teacher: teacher ?? this.teacher,
-        teacherId: teacherId ?? this.teacherId,
-        room: room ?? this.room,
-        isPaired: isPaired ?? this.isPaired,
-        breakMinutes: breakMinutes ?? this.breakMinutes,
-        studentHomeworkIds: studentHomeworkIds ?? this.studentHomeworkIds,
-        pairOverride: pairOverride ?? this.pairOverride,
-        isGap: isGap ?? this.isGap,
-      );
+    bool? isEc,
+  }) => Lesson(
+    id: id ?? this.id,
+    secondaryId: secondaryId ?? this.secondaryId,
+    startTime: startTime ?? this.startTime,
+    endTime: endTime ?? this.endTime,
+    subject: subject ?? this.subject,
+    subjectId: subjectId ?? this.subjectId,
+    homeworks: homeworks ?? this.homeworks,
+    attachments: attachments ?? this.attachments,
+    teacher: teacher ?? this.teacher,
+    teacherId: teacherId ?? this.teacherId,
+    room: room ?? this.room,
+    isPaired: isPaired ?? this.isPaired,
+    breakMinutes: breakMinutes ?? this.breakMinutes,
+    studentHomeworkIds: studentHomeworkIds ?? this.studentHomeworkIds,
+    pairOverride: pairOverride ?? this.pairOverride,
+    isGap: isGap ?? this.isGap,
+    isEc: isEc ?? this.isEc,
+  );
 
   factory Lesson.fromJson(Map<String, dynamic> json) => Lesson(
     id: json['id'] as int?,
@@ -103,6 +112,7 @@ class Lesson {
     teacherId: json['teacher_id'] as int?,
     room: json['room'] as String?,
     studentHomeworkIds: _decodeIds(json['student_homework_ids']),
+    isEc: json['is_ec'] as bool? ?? false,
   );
 
   Map<String, dynamic> toJson() => {
@@ -117,6 +127,7 @@ class Lesson {
     'teacher_id': teacherId,
     'room': room,
     'student_homework_ids': studentHomeworkIds,
+    'is_ec': isEc,
   };
 
   static List<String> decodeHomeworks(Object? raw) {
@@ -215,9 +226,11 @@ Lesson _mergeTwo(Lesson a, Lesson b) {
     teacherId: a.teacherId,
     room: a.room,
     isPaired: true,
-    breakMinutes:
-    (startMin != null && endMin != null) ? endMin - startMin : null,
+    breakMinutes: (startMin != null && endMin != null)
+        ? endMin - startMin
+        : null,
     studentHomeworkIds: [...a.studentHomeworkIds, ...b.studentHomeworkIds],
+    isEc: a.isEc,
   );
 }
 

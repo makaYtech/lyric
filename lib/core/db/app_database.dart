@@ -9,7 +9,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 15;
+  static const _version = 16;
 
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
@@ -138,6 +138,14 @@ class AppDatabase {
         if (oldVersion < 15) {
           await _createAttendancesTable(db);
         }
+        if (oldVersion < 16) {
+          if (!await _columnExists(db, tableLessons, 'is_ec')) {
+            await db.execute(
+              'ALTER TABLE $tableLessons '
+              'ADD COLUMN is_ec INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+        }
       },
     );
   }
@@ -162,6 +170,7 @@ class AppDatabase {
         homework TEXT,
         attachments_json TEXT NOT NULL DEFAULT '[]',
         student_homework_ids_json TEXT NOT NULL DEFAULT '[]',
+        is_ec INTEGER NOT NULL DEFAULT 0,
         updated_at TEXT NOT NULL
       )
     ''');

@@ -16,14 +16,14 @@ class ScheduleRepository {
     ScheduleService? service,
     ScheduleDao? dao,
     ScheduleOverridesDao? overridesDao,
-  })  : _service = service ?? ScheduleService(),
-        _dao = dao ?? ScheduleDao(),
-        _overridesDao = overridesDao ?? ScheduleOverridesDao();
+  }) : _service = service ?? ScheduleService(),
+       _dao = dao ?? ScheduleDao(),
+       _overridesDao = overridesDao ?? ScheduleOverridesDao();
 
   Future<List<DaySchedule>?> loadCached(
-      DateTime weekStart,
-      int academicYearId,
-      ) async {
+    DateTime weekStart,
+    int academicYearId,
+  ) async {
     final monday = _monday(weekStart);
     final days = await _dao.loadWeek(academicYearId, monday);
     final hasAny = days.any((d) => d.lessons.isNotEmpty);
@@ -36,17 +36,21 @@ class ScheduleRepository {
   }
 
   Future<List<DaySchedule>> refresh(
-      EposTokens tokens,
-      DateTime weekStart,
-      int academicYearId,
-      List<int> groupIds,
-      ) async {
+    EposTokens tokens,
+    DateTime weekStart,
+    int academicYearId,
+    List<int> groupIds, {
+    List<int> ecGroupIds = const [],
+    List<int> classUnitIds = const [],
+  }) async {
     final monday = _monday(weekStart);
     final days = await _service.fetchSchedule(
       tokens,
       weekStart: weekStart,
       academicYearId: academicYearId,
       groupIds: groupIds,
+      ecGroupIds: ecGroupIds,
+      classUnitIds: classUnitIds,
     );
     await _dao.saveWeek(academicYearId, days);
 
@@ -60,16 +64,15 @@ class ScheduleRepository {
       _dao.lastUpdated(academicYearId, _monday(weekStart));
 
   Future<List<DaySchedule>> loadWeekRaw(
-      DateTime weekStart,
-      int academicYearId,
-      ) =>
-      _dao.loadWeek(academicYearId, _monday(weekStart));
+    DateTime weekStart,
+    int academicYearId,
+  ) => _dao.loadWeek(academicYearId, _monday(weekStart));
 
   Future<Lesson?> loadRawLessonById(
-      int yearId,
-      DateTime weekStart,
-      int lessonId,
-      ) async {
+    int yearId,
+    DateTime weekStart,
+    int lessonId,
+  ) async {
     final days = await _dao.loadWeek(yearId, _monday(weekStart));
     for (final d in days) {
       for (final l in d.lessons) {
@@ -83,15 +86,14 @@ class ScheduleRepository {
   ScheduleOverridesDao get overrides => _overridesDao;
 
   Future<List<ScheduleOverride>> loadWeekOverrides(
-      DateTime weekStart,
-      int academicYearId,
-      ) =>
-      _overridesDao.loadWeek(academicYearId, _monday(weekStart));
+    DateTime weekStart,
+    int academicYearId,
+  ) => _overridesDao.loadWeek(academicYearId, _monday(weekStart));
 
   Future<Set<String>> loadDaysWithOverrides(
-      DateTime weekStart,
-      int academicYearId,
-      ) async {
+    DateTime weekStart,
+    int academicYearId,
+  ) async {
     final list = await loadWeekOverrides(weekStart, academicYearId);
     return list.map((o) => _isoDate(o.date)).toSet();
   }
@@ -102,11 +104,10 @@ class ScheduleRepository {
     required Iterable<int> lessonIds,
   }) {
     final list = lessonIds
-        .map((id) => ScheduleOverride.delete(
-      yearId: yearId,
-      date: date,
-      lessonId: id,
-    ))
+        .map(
+          (id) =>
+              ScheduleOverride.delete(yearId: yearId, date: date, lessonId: id),
+        )
         .toList();
     return _overridesDao.insertAll(list);
   }
@@ -117,14 +118,15 @@ class ScheduleRepository {
     required int lessonId,
     required String newStartTime,
     required String newEndTime,
-  }) =>
-      _overridesDao.insert(ScheduleOverride.move(
-        yearId: yearId,
-        date: date,
-        lessonId: lessonId,
-        startTime: newStartTime,
-        endTime: newEndTime,
-      ));
+  }) => _overridesDao.insert(
+    ScheduleOverride.move(
+      yearId: yearId,
+      date: date,
+      lessonId: lessonId,
+      startTime: newStartTime,
+      endTime: newEndTime,
+    ),
+  );
 
   /// Пакетная замена времени для нескольких уроков дня. Используется
   /// при drop на окно: одиночный урок = одна запись, пара = две.
@@ -135,13 +137,15 @@ class ScheduleRepository {
   }) {
     if (moves.isEmpty) return Future.value(const []);
     final list = moves
-        .map((m) => ScheduleOverride.move(
-      yearId: yearId,
-      date: date,
-      lessonId: m.lessonId,
-      startTime: m.startTime,
-      endTime: m.endTime,
-    ))
+        .map(
+          (m) => ScheduleOverride.move(
+            yearId: yearId,
+            date: date,
+            lessonId: m.lessonId,
+            startTime: m.startTime,
+            endTime: m.endTime,
+          ),
+        )
         .toList();
     return _overridesDao.insertAll(list);
   }
@@ -179,13 +183,14 @@ class ScheduleRepository {
     required DateTime date,
     required int primaryId,
     required int secondaryId,
-  }) =>
-      _overridesDao.insert(ScheduleOverride.pairBreak(
-        yearId: yearId,
-        date: date,
-        primaryId: primaryId,
-        secondaryId: secondaryId,
-      ));
+  }) => _overridesDao.insert(
+    ScheduleOverride.pairBreak(
+      yearId: yearId,
+      date: date,
+      primaryId: primaryId,
+      secondaryId: secondaryId,
+    ),
+  );
 
   Future<void> makePair({
     required int yearId,
@@ -195,12 +200,14 @@ class ScheduleRepository {
   }) async {
     await _overridesDao.deleteForLesson(yearId, date, primaryId);
     await _overridesDao.deleteForLesson(yearId, date, secondaryId);
-    await _overridesDao.insert(ScheduleOverride.pairMake(
-      yearId: yearId,
-      date: date,
-      primaryId: primaryId,
-      secondaryId: secondaryId,
-    ));
+    await _overridesDao.insert(
+      ScheduleOverride.pairMake(
+        yearId: yearId,
+        date: date,
+        primaryId: primaryId,
+        secondaryId: secondaryId,
+      ),
+    );
   }
 
   /// Перестановка уроков дня. Один reorder-override на день, предыдущий
@@ -224,17 +231,12 @@ class ScheduleRepository {
     await _overridesDao.deleteReordersForDay(yearId, date);
     if (same) return const [];
 
-    final order = newOrder
-        .map((l) => l.id)
-        .whereType<int>()
-        .toList();
+    final order = newOrder.map((l) => l.id).whereType<int>().toList();
     if (order.isEmpty) return const [];
 
-    final id = await _overridesDao.insert(ScheduleOverride.reorder(
-      yearId: yearId,
-      date: date,
-      order: order,
-    ));
+    final id = await _overridesDao.insert(
+      ScheduleOverride.reorder(yearId: yearId, date: date, order: order),
+    );
     return [id];
   }
 
@@ -256,6 +258,6 @@ class ScheduleRepository {
 
   static String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'
-          '${d.month.toString().padLeft(2, '0')}-'
-          '${d.day.toString().padLeft(2, '0')}';
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
 }
