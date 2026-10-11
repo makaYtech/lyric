@@ -30,6 +30,13 @@ class _GradesViewState extends State<GradesView> {
   List<String> _cachedPeriods = const [];
   List<SubjectGrade>? _cachedPeriodsFor;
 
+  // Кэш отсортированного списка. Сортировка предметов + фильтрация по
+  // периоду раньше шли на каждый build — теперь только при смене
+  // grades или выбранного периода.
+  List<SubjectGrade> _cachedVisible = const [];
+  List<SubjectGrade>? _cachedVisibleFor;
+  String? _cachedVisiblePeriod;
+
   List<String> _periods() {
     final grades = widget.grades;
     if (identical(_cachedPeriodsFor, grades)) return _cachedPeriods;
@@ -52,6 +59,9 @@ class _GradesViewState extends State<GradesView> {
   void didUpdateWidget(covariant GradesView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.grades != widget.grades) {
+      _cachedVisible = const [];
+      _cachedVisibleFor = null;
+      _cachedVisiblePeriod = null;
       _validateSelection();
     }
   }
@@ -78,6 +88,44 @@ class _GradesViewState extends State<GradesView> {
     return m == null ? null : int.tryParse(m.group(0)!);
   }
 
+  /// Сортировка предметов по имени. Приводим к нижнему регистру — иначе
+  /// «алгебра» после «Я» из-за ASCII-порядка. Ё/Ж — не критично, для
+  /// школьных предметов хватает обычного compareTo.
+  static int _compareSubjects(SubjectGrade a, SubjectGrade b) =>
+      a.name.toLowerCase().compareTo(b.name.toLowerCase());
+
+  /// Список предметов под выбранный период, уже отсортированный.
+  /// Показываем и те, у кого за этот период оценок нет — в конце списка,
+  /// это удобнее, чем мигающее исчезновение предмета при смене периода.
+  List<SubjectGrade> _visible() {
+    final grades = widget.grades;
+    if (grades == null || grades.isEmpty) return const [];
+
+    final selected = _selectedPeriod;
+
+    if (identical(_cachedVisibleFor, grades) &&
+        _cachedVisiblePeriod == selected) {
+      return _cachedVisible;
+    }
+
+    // Сортируем базовый список один раз.
+    final sorted = [...grades]..sort(_compareSubjects);
+
+    // Фильтр по периоду: если выбран, оставляем только предметы, у которых
+    // в этом периоде есть хотя бы одна оценка.
+    final result = selected == null
+        ? sorted
+        : sorted.where((s) {
+            final p = s.periodByName(selected);
+            return p != null && p.allGrades.isNotEmpty;
+          }).toList();
+
+    _cachedVisible = result;
+    _cachedVisibleFor = grades;
+    _cachedVisiblePeriod = selected;
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
@@ -87,18 +135,10 @@ class _GradesViewState extends State<GradesView> {
         error: widget.error,
         hasData: widget.grades != null && widget.grades!.isNotEmpty,
         contentBuilder: (context) {
-          final all = widget.grades!;
           final periods = _periods();
           final selected =
               _selectedPeriod ?? (periods.isNotEmpty ? periods.first : null);
-
-          // Предметы, у которых есть оценки за выбранный период.
-          final visible = selected == null
-              ? all
-              : all.where((s) {
-                  final p = s.periodByName(selected);
-                  return p != null && p.allGrades.isNotEmpty;
-                }).toList();
+          final visible = _visible();
 
           final listView = visible.isEmpty
               ? ListView(
