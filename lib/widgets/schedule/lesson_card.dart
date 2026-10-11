@@ -206,12 +206,14 @@ class LessonCard extends StatelessWidget {
                   GradeDot(
                     value: g.value,
                     size: 24,
+                    weight: g.weight,
                     onTap: () => showGradeDetails(
                       context,
                       value: g.value,
                       receivedAt: g.receivedAt,
                       subject: lesson.subject,
                       workType: g.workType,
+                      weight: g.weight,
                     ),
                   ),
               ],

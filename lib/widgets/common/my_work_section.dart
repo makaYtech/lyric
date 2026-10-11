@@ -47,16 +47,18 @@ class _MyWorkSectionState extends State<MyWorkSection> {
 
   Future<void> _reload() async {
     try {
-      final list = await HomeworkAttachmentsService.instance
-          .load(widget.studentHomeworkId);
+      final list = await HomeworkAttachmentsService.instance.load(
+        widget.studentHomeworkId,
+      );
       if (!mounted) return;
       setState(() {
         _items = list;
         _loading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      _snack('Не удалось загрузить файлы: $e');
     }
   }
 
@@ -70,9 +72,16 @@ class _MyWorkSectionState extends State<MyWorkSection> {
   Future<void> _attach() async {
     if (_busy) return;
     final result = await FilePicker.platform.pickFiles(withData: false);
-    final picked = result?.files.single;
-    final path = picked?.path;
-    if (picked == null || path == null) return;
+    if (result == null || result.files.isEmpty) return;
+    final picked = result.files.single;
+    final path = picked.path;
+    if (path == null) {
+      _snack(
+        'Не удалось прочитать выбранный файл. '
+        'Попробуй выбрать его из «Загрузок» или из папки.',
+      );
+      return;
+    }
 
     setState(() => _busy = true);
     try {
@@ -114,8 +123,10 @@ class _MyWorkSectionState extends State<MyWorkSection> {
 
     setState(() => _busy = true);
     try {
-      final list = await HomeworkAttachmentsService.instance
-          .detach(widget.studentHomeworkId, a.id);
+      final list = await HomeworkAttachmentsService.instance.detach(
+        widget.studentHomeworkId,
+        a.id,
+      );
       if (!mounted) return;
       setState(() => _items = list);
     } catch (e) {
@@ -142,8 +153,10 @@ class _MyWorkSectionState extends State<MyWorkSection> {
           children: [
             Text(
               'Моя работа',
-              style: theme.textTheme.labelMedium
-                  ?.copyWith(color: dim, letterSpacing: 0.5),
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: dim,
+                letterSpacing: 0.5,
+              ),
             ),
             const SizedBox(width: 8),
             if (_loading || _busy)
@@ -188,8 +201,9 @@ class _MyWorkSectionState extends State<MyWorkSection> {
                             if (a.displaySize.isNotEmpty)
                               Text(
                                 a.displaySize,
-                                style: theme.textTheme.bodySmall
-                                    ?.copyWith(color: dim),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: dim,
+                                ),
                               ),
                           ],
                         ),
@@ -218,11 +232,11 @@ class _MyWorkSectionState extends State<MyWorkSection> {
 
 /// Шторка «Моя работа» — для случаев, когда места на карточке нет.
 Future<void> showMyWorkSheet(
-    BuildContext context, {
-      required int studentHomeworkId,
-      String? subject,
-      List<HomeworkAttachment> initial = const [],
-    }) {
+  BuildContext context, {
+  required int studentHomeworkId,
+  String? subject,
+  List<HomeworkAttachment> initial = const [],
+}) {
   return showModalBottomSheet<void>(
     context: context,
     showDragHandle: true,
@@ -241,9 +255,7 @@ Future<void> showMyWorkSheet(
                 subject,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(ctx)
-                    .textTheme
-                    .titleLarge
+                style: Theme.of(ctx).textTheme.titleLarge
                     ?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 16),

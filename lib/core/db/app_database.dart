@@ -9,7 +9,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 16;
+  static const _version = 17;
 
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
@@ -146,6 +146,13 @@ class AppDatabase {
             );
           }
         }
+        if (oldVersion < 17) {
+          if (!await _columnExists(db, tableGrades, 'weights_json')) {
+            await db.execute(
+              'ALTER TABLE $tableGrades ADD COLUMN weights_json TEXT',
+            );
+          }
+        }
       },
     );
   }
@@ -188,6 +195,7 @@ class AppDatabase {
         grades_json TEXT NOT NULL,
         dates_json TEXT,
         comments_json TEXT,
+        weights_json TEXT,
         updated_at TEXT NOT NULL,
         changed INTEGER NOT NULL DEFAULT 0
       )

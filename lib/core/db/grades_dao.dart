@@ -10,8 +10,8 @@ import 'app_database.dart';
 /// отличается от того, что было сохранено — это и есть "изменение":
 /// пишем старую версию в grade_history, помечаем срез changed=1.
 ///
-/// Даты и комментарии сохраняются параллельно grades — по индексу.
-/// Если у среза изменились только даты/комменты, а сами оценки те же,
+/// Даты, комментарии и веса сохраняются параллельно grades — по индексу.
+/// Если у среза изменились только даты/комменты/веса, а сами оценки те же,
 /// срез не помечается changed (UI это не интересно), но значения
 /// в БД всё равно обновляются.
 class GradesDao {
@@ -29,6 +29,7 @@ class GradesDao {
               wt.dates.map((d) => d?.toIso8601String()).toList(),
             );
             final newComments = jsonEncode(wt.comments);
+            final newWeights = jsonEncode(wt.weights);
 
             final existing = await txn.query(
               AppDatabase.tableGrades,
@@ -47,6 +48,7 @@ class GradesDao {
                 'grades_json': newJson,
                 'dates_json': newDates,
                 'comments_json': newComments,
+                'weights_json': newWeights,
                 'updated_at': now,
                 'changed': 0,
               });
@@ -70,6 +72,7 @@ class GradesDao {
                 'grades_json': newJson,
                 'dates_json': newDates,
                 'comments_json': newComments,
+                'weights_json': newWeights,
                 'updated_at': now,
                 if (gradesChanged) 'changed': 1,
               },
@@ -156,6 +159,7 @@ class GradesDao {
     grades: _decodeGrades(r['grades_json']),
     dates: _decodeDates(r['dates_json']),
     comments: _decodeComments(r['comments_json']),
+    weights: _decodeWeights(r['weights_json']),
     updatedAt: DateTime.parse(r['updated_at'] as String),
     changed: (r['changed'] as int) == 1,
   );
@@ -185,6 +189,16 @@ class GradesDao {
     try {
       final list = jsonDecode(raw) as List;
       return list.map((c) => c is String ? c : null).toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static List<int?> _decodeWeights(Object? raw) {
+    if (raw is! String || raw.isEmpty) return const [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list.map((w) => w is num ? w.toInt() : null).toList();
     } catch (_) {
       return const [];
     }

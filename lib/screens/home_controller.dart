@@ -122,6 +122,12 @@ class HomeController extends ChangeNotifier {
   String? _profileError;
   String? get profileError => _profileError;
 
+  /// Спиннер всей операции «Обновить всё». Включается синхронно в момент
+  /// тапа, а не только когда доходят до Future.wait — иначе на плохой
+  /// сети между тапом и запуском _refreshYears кнопка «молчит».
+  bool _refreshingAll = false;
+  bool get refreshingAll => _refreshingAll;
+
   List<Teacher>? _teachers;
   List<Teacher>? get teachers => _teachers;
   DateTime? _teachersUpdated;
@@ -229,6 +235,7 @@ class HomeController extends ChangeNotifier {
   };
 
   bool get anyLoading =>
+      _refreshingAll ||
       _profileLoading ||
       _gradesLoading ||
       _scheduleLoading ||
@@ -493,15 +500,23 @@ class HomeController extends ChangeNotifier {
   }
 
   Future<void> refreshAll() async {
-    await _refreshYears();
-    await Future.wait([
-      refreshProfile(),
-      refreshGrades(),
-      refreshSchedule(),
-      refreshHomeworks(),
-      _refreshTeachers(),
-      refreshAttendances(),
-    ]);
+    if (_refreshingAll) return;
+    _refreshingAll = true;
+    _notify();
+    try {
+      await _refreshYears();
+      await Future.wait([
+        refreshProfile(),
+        refreshGrades(),
+        refreshSchedule(),
+        refreshHomeworks(),
+        _refreshTeachers(),
+        refreshAttendances(),
+      ]);
+    } finally {
+      _refreshingAll = false;
+      _notify();
+    }
   }
 
   Future<void> refreshProfile({bool silent = false}) => _runRefresh(

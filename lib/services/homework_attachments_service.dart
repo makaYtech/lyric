@@ -110,15 +110,31 @@ class HomeworkAttachmentsService {
         final streamed = await client
             .send(req)
             .timeout(const Duration(seconds: 120));
-        final body = await streamed.stream.bytesToString();
-        final resp = http.Response(body, streamed.statusCode);
+
+        // Читаем ответ как БАЙТЫ и собираем Response.bytes — тогда
+        // package:http НЕ пытается перекодировать тело в latin1.
+        // Конструктор http.Response(String, ...) внутри делает
+        // latin1.encode(body), и падает, если в теле есть кириллица.
+        // А сервер эхом возвращает имя файла («ДЗ.txt») — вот на нём
+        // всё и рвалось.
+        final rawBytes = await streamed.stream.toBytes();
+        final resp = http.Response.bytes(rawBytes, streamed.statusCode);
+
         ensureSessionValid(resp);
         if (resp.statusCode >= 400) {
-          throw Exception('Загрузка файла: ${resp.statusCode} $body');
+          final errBody = utf8.decode(rawBytes, allowMalformed: true);
+          throw Exception('Загрузка файла: ${resp.statusCode} $errBody');
         }
-        final decoded = jsonDecode(body);
+        final decoded = jsonDecode(utf8.decode(rawBytes));
         if (decoded is! Map<String, dynamic>) {
           throw Exception('Загрузка файла: неожиданный ответ');
+        }
+        if (decoded['id'] is! int) {
+          final errBody = utf8.decode(rawBytes, allowMalformed: true);
+          throw Exception(
+            'Загрузка файла: сервер не вернул id вложения. '
+            'Ответ: $errBody',
+          );
         }
         return decoded;
       } finally {
@@ -137,29 +153,52 @@ class HomeworkAttachmentsService {
       ..['attachments'] = attachments
       ..['attachment_ids'] = attachmentIds;
 
+    // Явно готовим тело в UTF-8 байтах и отправляем через HttpClient
+    // напрямую. package:http при Content-Type без charset кодирует
+    // String-тело через latin1 → падает на кириллице (например,
+    // «ДЗ.txt» в имени приложенного файла). Передавая байты напрямую,
+    // полностью обходим эту логику.
+    final bodyBytes = utf8.encode(jsonEncode(payload));
+
     return _withAuthRetry((tokens) async {
-      final client = await createEposHttpClient();
+      final client = await createEposRawHttpClient();
       try {
-        final resp = await client
-            .put(
-              Uri.parse(
-                '$_base/core/api/student_homeworks/$id?pid=${tokens.profileId}',
-              ),
-              headers: {
-                ..._headers(tokens),
-                'Content-Type': 'application/json',
-              },
-              body: jsonEncode(payload),
-            )
-            .timeout(const Duration(seconds: 30));
-        ensureSessionValid(resp);
-        if (resp.statusCode >= 400) {
-          throw Exception('Сохранение ДЗ: ${resp.statusCode}');
+        final uri = Uri.parse(
+          '$_base/core/api/student_homeworks/$id?pid=${tokens.profileId}',
+        );
+        final req = await client.putUrl(uri);
+        req.headers.contentType = ContentType(
+          'application',
+          'json',
+          charset: 'utf-8',
+        );
+        req.headers.set('Accept', 'application/json');
+        req.headers.set('User-Agent', _userAgent);
+        if (tokens.cookieHeader.isNotEmpty) {
+          req.headers.set('Cookie', tokens.cookieHeader);
+        } else {
+          req.headers.set('Auth-Token', tokens.authToken);
+          req.headers.set('Profile-Id', tokens.profileId);
         }
-        final decoded = jsonDecode(utf8.decode(resp.bodyBytes));
+        req.add(bodyBytes);
+
+        final resp = await req.close().timeout(const Duration(seconds: 30));
+        final rawBody = await utf8.decoder.bind(resp).join();
+
+        if (resp.statusCode == 401 || resp.statusCode == 403) {
+          throw const SessionExpiredException();
+        }
+        if (resp.statusCode >= 400) {
+          final snippet = rawBody.length > 300
+              ? '${rawBody.substring(0, 300)}…'
+              : rawBody;
+          throw Exception('Сохранение ДЗ: ${resp.statusCode} $snippet');
+        }
+        if (rawBody.isEmpty) return payload;
+        final decoded = jsonDecode(rawBody);
         return decoded is Map<String, dynamic> ? decoded : payload;
       } finally {
-        client.close();
+        client.close(force: true);
       }
     });
   }
@@ -189,8 +228,13 @@ class HomeworkAttachmentsService {
 
   /// Сущность целиком. Основной путь — GET по id; если сервер такой
   /// маршрут не отдаёт, ищем запись в списке за учебный год.
+  ///
+  /// ВАЖНО: в списке обязателен academic_year_id — без него ЭПОС
+  /// возвращает пустоту или 400. Именно на этом attach и падал.
   Future<Map<String, dynamic>> _fetchEntity(int id) async {
     final tokens = _requireTokens();
+
+    // 1. Прямой GET по id.
     try {
       final raw = await _api.getRaw(
         Uri.parse(
@@ -199,29 +243,65 @@ class HomeworkAttachmentsService {
         tokens,
         attempts: 2,
       );
-      if (raw is Map<String, dynamic> && raw['id'] is int) return raw;
+      if (raw is Map<String, dynamic> &&
+          _idMatches(raw['id'], id) &&
+          raw.containsKey('attachments')) {
+        return raw;
+      }
     } catch (_) {
       // падаем в фолбэк ниже
     }
 
+    // 2. Fallback: список за учебный год с academic_year_id.
+    final academicYearId = await _resolveAcademicYearId(tokens);
     final now = DateTime.now();
     final year = now.month >= 9 ? now.year : now.year - 1;
+
+    final params = <String>[
+      'begin_date=${dotDate(DateTime(year, 9, 1))}',
+      'end_date=${dotDate(DateTime(year + 1, 8, 31))}',
+      if (academicYearId != null) 'academic_year_id=$academicYearId',
+      'student_profile_id=${tokens.profileId}',
+      'page=1',
+      'per_page=1000',
+      'pid=${tokens.profileId}',
+    ];
+
     final list = await _api.getList(
-      Uri.parse(
-        '$_base/core/api/student_homeworks'
-        '?begin_date=${dotDate(DateTime(year, 9, 1))}'
-        '&end_date=${dotDate(DateTime(year + 1, 8, 31))}'
-        '&student_profile_id=${tokens.profileId}'
-        '&page=1&per_page=1000'
-        '&pid=${tokens.profileId}',
-      ),
+      Uri.parse('$_base/core/api/student_homeworks?${params.join('&')}'),
       tokens,
       attempts: 2,
     );
     for (final raw in list.whereType<Map<String, dynamic>>()) {
-      if (raw['id'] == id) return raw;
+      if (_idMatches(raw['id'], id)) return raw;
     }
     throw Exception('Запись ДЗ $id не найдена на сервере');
+  }
+
+  static bool _idMatches(Object? rawId, int id) {
+    if (rawId is int) return rawId == id;
+    if (rawId is num) return rawId.toInt() == id;
+    if (rawId is String) return int.tryParse(rawId) == id;
+    return false;
+  }
+
+  Future<int?> _resolveAcademicYearId(EposTokens tokens) async {
+    try {
+      final years = await _api.getList(
+        Uri.parse('$_base/core/api/academic_years?pid=${tokens.profileId}'),
+        tokens,
+        attempts: 1,
+      );
+      for (final y in years.whereType<Map<String, dynamic>>()) {
+        if (y['current_year'] == true && y['id'] is int) {
+          return y['id'] as int;
+        }
+      }
+      for (final y in years.reversed.whereType<Map<String, dynamic>>()) {
+        if (y['id'] is int) return y['id'] as int;
+      }
+    } catch (_) {}
+    return null;
   }
 
   // ── Вспомогательное ────────────────────────────────────────────────────
@@ -258,7 +338,18 @@ class HomeworkAttachmentsService {
       final outcome = await AuthCoordinator.instance.renew();
       switch (outcome) {
         case RenewOutcome.success:
-          return action(_requireTokens());
+          // ЭПОС часто отдаёт 401 на первый запрос с новыми cookies —
+          // waf_cookie приживается только со второго раза. Даём 3 попытки
+          // с нарастающей паузой, прежде чем поверить, что сессия мертва.
+          for (var i = 0; i < 3; i++) {
+            try {
+              return await action(_requireTokens());
+            } on SessionExpiredException {
+              if (i == 2) rethrow;
+              await Future.delayed(Duration(milliseconds: 400 * (i + 1)));
+            }
+          }
+          rethrow; // недостижимо
         case RenewOutcome.authDead:
           SessionNotifier.instance.markExpired();
           rethrow;

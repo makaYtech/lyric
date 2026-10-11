@@ -13,19 +13,20 @@ class TeachersService {
   TeachersService({ApiClient? api}) : _api = api ?? ApiClient();
 
   Future<List<Teacher>> fetchTeachers(
-      EposTokens tokens, {
-        required int academicYearId,
-      }) async {
+    EposTokens tokens, {
+    required int academicYearId,
+  }) async {
     final teachersUri = Uri.parse(
       'https://edu-epos.permkrai.ru/core/api/teacher_profiles'
-          '?academic_year_id=$academicYearId'
-          '&types=all'
-          '&page=1'
-          '&per_page=200'
-          '&pid=${tokens.profileId}',
+      '?academic_year_id=$academicYearId'
+      '&types=all'
+      '&page=1'
+      '&per_page=200'
+      '&pid=${tokens.profileId}',
     );
-    final teachersRaw =
-    await _api.getList(teachersUri, tokens, attempts: 2, silent: true);
+    // ВАЖНО: без silent. При ошибке сети getList кинет исключение,
+    // репозиторий не дойдёт до saveAll, кэш учителей не снесётся.
+    final teachersRaw = await _api.getList(teachersUri, tokens, attempts: 2);
     final teachers = teachersRaw
         .whereType<Map<String, dynamic>>()
         .map(Teacher.fromJson)
@@ -40,12 +41,20 @@ class TeachersService {
 
     final roomsUri = Uri.parse(
       'https://edu-epos.permkrai.ru/core/api/rooms'
-          '?ids=${allRoomIds.join(',')}'
-          '&all_schools=true'
-          '&pid=${tokens.profileId}',
+      '?ids=${allRoomIds.join(',')}'
+      '&all_schools=true'
+      '&pid=${tokens.profileId}',
     );
-    final roomsRaw =
-    await _api.getList(roomsUri, tokens, attempts: 2, silent: true);
+    final roomsRaw = await _api.getList(
+      roomsUri,
+      tokens,
+      attempts: 2,
+      silent: true,
+    );
+
+    // Если кабинеты не подтянулись (сеть/WAF), не портим ownedRoomIds —
+    // возвращаем учителей как есть, кэш останется валидным.
+    if (roomsRaw.isEmpty) return teachers;
 
     final requested = allRoomIds.toSet();
     final responsibleByRoom = <int, int?>{};

@@ -9,8 +9,8 @@ class GradesRepository {
   final GradesDao _dao;
 
   GradesRepository({GradesService? service, GradesDao? dao})
-      : _service = service ?? GradesService(),
-        _dao = dao ?? GradesDao();
+    : _service = service ?? GradesService(),
+      _dao = dao ?? GradesDao();
 
   Future<List<SubjectGrade>?> loadCached(int yearId) async {
     final slices = await _dao.loadCurrent(yearId);
@@ -32,20 +32,18 @@ class GradesRepository {
   }
 
   Future<List<GradeHistoryEntry>> historyFor(
-      int yearId,
-      String subject,
-      String period,
-      String workType,
-      ) =>
-      _dao.historyFor(yearId, subject, period, workType);
+    int yearId,
+    String subject,
+    String period,
+    String workType,
+  ) => _dao.historyFor(yearId, subject, period, workType);
 
   Future<void> acknowledgeChange(
-      int yearId,
-      String subject,
-      String period,
-      String workType,
-      ) =>
-      _dao.acknowledge(yearId, subject, period, workType);
+    int yearId,
+    String subject,
+    String period,
+    String workType,
+  ) => _dao.acknowledge(yearId, subject, period, workType);
 
   List<SubjectGrade> _toSubjectGrades(List<GradeSlice> slices) {
     final bySubject = <String, Map<String, List<GradeSlice>>>{};
@@ -57,12 +55,15 @@ class GradesRepository {
     return bySubject.entries.map((subjectEntry) {
       final periods = subjectEntry.value.entries.map((periodEntry) {
         final workTypes = periodEntry.value
-            .map((s) => WorkTypeGrades(
-          workType: s.workType,
-          grades: s.grades,
-          dates: s.dates,
-          comments: s.comments,
-        ))
+            .map(
+              (s) => WorkTypeGrades(
+                workType: s.workType,
+                grades: s.grades,
+                dates: s.dates,
+                comments: s.comments,
+                weights: s.weights,
+              ),
+            )
             .toList();
         return PeriodGrades(name: periodEntry.key, workTypes: workTypes);
       }).toList();

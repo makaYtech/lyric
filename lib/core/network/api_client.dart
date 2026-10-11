@@ -64,14 +64,21 @@ class ApiClient {
       switch (outcome) {
         case RenewOutcome.success:
           final fresh = AuthCoordinator.instance.tokens ?? tokens;
-          try {
-            return await withRetry(() => _once(url, fresh), attempts: 1);
-          } on SessionExpiredException {
-            // Даже со свежими cookies сервер снова говорит «сессия
-            // истекла» — это уже не сеть, реально нужен живой вход.
-            SessionNotifier.instance.markExpired();
-            rethrow;
+          // 3 попытки с паузой: ЭПОС часто отдаёт 401 на первый
+          // запрос с обновлёнными cookies (waf_cookie). Только если
+          // все три упали — считаем сессию действительно мёртвой.
+          for (var i = 0; i < 3; i++) {
+            try {
+              return await _once(url, fresh);
+            } on SessionExpiredException {
+              if (i == 2) {
+                SessionNotifier.instance.markExpired();
+                rethrow;
+              }
+              await Future.delayed(Duration(milliseconds: 400 * (i + 1)));
+            }
           }
+          rethrow; // недостижимо
         case RenewOutcome.authDead:
           SessionNotifier.instance.markExpired();
           rethrow;

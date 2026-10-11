@@ -3,22 +3,26 @@ import '../core/util/date_time.dart';
 class WorkTypeGrades {
   final String workType;
   final List<int> grades;
+
   /// Дата каждой оценки (по индексу, параллельно grades).
-  /// null, если API не прислал дату конкретной оценки.
   final List<DateTime?> dates;
+
   /// Комментарий учителя, по индексу параллельно grades.
-  /// null, если комментария нет.
   final List<String?> comments;
+
+  /// Вес каждой оценки (по индексу, параллельно grades).
+  /// 1 или null — обычная, ≥2 — «оценка в квадрате» (показываем 5²).
+  final List<int?> weights;
 
   const WorkTypeGrades({
     required this.workType,
     required this.grades,
     this.dates = const [],
     this.comments = const [],
+    this.weights = const [],
   });
 
-  DateTime? dateAt(int i) =>
-      i >= 0 && i < dates.length ? dates[i] : null;
+  DateTime? dateAt(int i) => i >= 0 && i < dates.length ? dates[i] : null;
 
   String? commentAt(int i) {
     if (i < 0 || i >= comments.length) return null;
@@ -26,6 +30,11 @@ class WorkTypeGrades {
     if (c == null) return null;
     final t = c.trim();
     return t.isEmpty ? null : t;
+  }
+
+  int? weightAt(int i) {
+    if (i < 0 || i >= weights.length) return null;
+    return weights[i];
   }
 
   double? get average {
@@ -38,12 +47,14 @@ class WorkTypeGrades {
     'grades': grades,
     'dates': dates.map((d) => d?.toIso8601String()).toList(),
     'comments': comments,
+    'weights': weights,
   };
 
   factory WorkTypeGrades.fromCache(Map<String, dynamic> json) {
     final raw = json['grades'] as List<dynamic>? ?? const [];
     final rawDates = json['dates'] as List<dynamic>? ?? const [];
     final rawComments = json['comments'] as List<dynamic>? ?? const [];
+    final rawWeights = json['weights'] as List<dynamic>? ?? const [];
     return WorkTypeGrades(
       workType: json['work_type'] as String? ?? '—',
       grades: raw.whereType<num>().map((e) => e.toInt()).toList(),
@@ -51,6 +62,7 @@ class WorkTypeGrades {
           .map((d) => d is String ? DateTime.tryParse(d) : null)
           .toList(),
       comments: rawComments.map((c) => c is String ? c : null).toList(),
+      weights: rawWeights.map((w) => w is num ? w.toInt() : null).toList(),
     );
   }
 }
@@ -68,8 +80,8 @@ class PeriodGrades {
 
   List<int> get allGrades => workTypes.expand((w) => w.grades).toList();
   List<DateTime?> get allDates => workTypes.expand((w) => w.dates).toList();
-  List<String?> get allComments =>
-      workTypes.expand((w) => w.comments).toList();
+  List<String?> get allComments => workTypes.expand((w) => w.comments).toList();
+  List<int?> get allWeights => workTypes.expand((w) => w.weights).toList();
 
   double? get average {
     if (apiAverage != null && apiAverage! > 0) return apiAverage;
@@ -106,15 +118,15 @@ class PeriodGrades {
     final byWorkType = <String, List<int>>{};
     final datesByWorkType = <String, List<DateTime?>>{};
     final commentsByWorkType = <String, List<String?>>{};
+    final weightsByWorkType = <String, List<int?>>{};
     final marks = json['marks'] as List<dynamic>? ?? const [];
 
     for (final m in marks.whereType<Map<String, dynamic>>()) {
       final workType = m['control_form_name'] as String? ?? 'Прочее';
       final values = m['values'] as List<dynamic>? ?? const [];
+      // weight висит на самой записи marks[], а не на отдельном value.
+      final weight = (m['weight'] as num?)?.toInt();
 
-      // В /core/api/marks created_at и comment висят на уровне записи,
-      // а не отдельного значения. Здесь структура другая, но по аналогии
-      // пробуем сначала на уровне значения, потом на уровне marks[].
       final formDate = parseEposDateTime(
         m['created_at'] ?? m['date'] ?? m['mark_date'],
       );
@@ -129,14 +141,14 @@ class PeriodGrades {
         final vDate = parseEposDateTime(
           v['created_at'] ?? v['date'] ?? v['mark_date'],
         );
-        datesByWorkType
-            .putIfAbsent(workType, () => [])
-            .add(vDate ?? formDate);
+        datesByWorkType.putIfAbsent(workType, () => []).add(vDate ?? formDate);
 
         final vComment = _asString(v['comment']);
         commentsByWorkType
             .putIfAbsent(workType, () => [])
             .add(vComment ?? formComment);
+
+        weightsByWorkType.putIfAbsent(workType, () => []).add(weight);
       }
     }
 
@@ -148,19 +160,20 @@ class PeriodGrades {
     return PeriodGrades(
       name: json['name'] as String? ?? '—',
       workTypes: byWorkType.entries
-          .map((e) => WorkTypeGrades(
-        workType: e.key,
-        grades: e.value,
-        dates: datesByWorkType[e.key] ?? const [],
-        comments: commentsByWorkType[e.key] ?? const [],
-      ))
+          .map(
+            (e) => WorkTypeGrades(
+              workType: e.key,
+              grades: e.value,
+              dates: datesByWorkType[e.key] ?? const [],
+              comments: commentsByWorkType[e.key] ?? const [],
+              weights: weightsByWorkType[e.key] ?? const [],
+            ),
+          )
           .toList(),
       apiAverage: avg,
     );
   }
 
-  /// Значение оценки: обычно на верхнем уровне `five`, но на всякий
-  /// случай пробуем и вложенный `grade.five`.
   static int? _extractGrade(Map<String, dynamic> v) {
     final direct = v['five'];
     if (direct is num) return direct.toInt();
@@ -185,10 +198,6 @@ class SubjectGrade {
   final String name;
   final List<PeriodGrades> periods;
   final double? apiAverage;
-
-  /// Числовой id предмета из API. Нужен, чтобы матчить оценки из
-  /// /core/api/marks (у них есть только subject_id, без имени) с
-  /// типами работ из /reports/api/progress/json.
   final int? subjectId;
 
   const SubjectGrade({
@@ -209,6 +218,7 @@ class SubjectGrade {
   List<DateTime?> get allDates => periods.expand((p) => p.allDates).toList();
   List<String?> get allComments =>
       periods.expand((p) => p.allComments).toList();
+  List<int?> get allWeights => periods.expand((p) => p.allWeights).toList();
 
   PeriodGrades? periodByName(String name) {
     for (final p in periods) {
@@ -242,7 +252,6 @@ class SubjectGrade {
     );
   }
 
-  /// Из ответа /reports/api/progress/json.
   factory SubjectGrade.fromApi(Map<String, dynamic> json) {
     final rawPeriods = json['periods'] as List<dynamic>? ?? const [];
     double? avg;

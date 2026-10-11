@@ -14,9 +14,6 @@ class SubjectGradeCard extends StatefulWidget {
 }
 
 class _SubjectGradeCardState extends State<SubjectGradeCard> {
-  // Кэш плоского списка оценок. Пересчитываем только когда меняется
-  // сам SubjectGrade (identical) или выбранный период. ExpansionTile
-  // раскрывается/сворачивается — пропсы те же, кэш живёт.
   List<_MiniGradeEntry>? _cachedEntries;
   SubjectGrade? _cachedEntriesFor;
   String? _cachedEntriesPeriod;
@@ -104,7 +101,6 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
     );
   }
 
-  /// Собираем плоский список оценок с сохранением типа работы каждой.
   static List<_MiniGradeEntry> _collectEntries(List<WorkTypeGrades> workTypes) {
     final out = <_MiniGradeEntry>[];
     for (final w in workTypes) {
@@ -115,6 +111,7 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
             receivedAt: i < w.dates.length ? w.dates[i] : null,
             comment: w.commentAt(i),
             workType: w.workType,
+            weight: w.weightAt(i),
           ),
         );
       }
@@ -131,18 +128,19 @@ class _SubjectGradeCardState extends State<SubjectGradeCard> {
   }
 }
 
-/// Одна оценка в мини-строке, со всеми сопутствующими данными.
 class _MiniGradeEntry {
   final int value;
   final DateTime? receivedAt;
   final String? comment;
   final String? workType;
+  final int? weight;
 
   const _MiniGradeEntry({
     required this.value,
     this.receivedAt,
     this.comment,
     this.workType,
+    this.weight,
   });
 }
 
@@ -189,6 +187,7 @@ class _MiniGradesRow extends StatelessWidget {
             child: GradeDot(
               value: e.value,
               size: 22,
+              weight: e.weight,
               onTap: () => showGradeDetails(
                 context,
                 value: e.value,
@@ -196,6 +195,7 @@ class _MiniGradesRow extends StatelessWidget {
                 comment: e.comment,
                 subject: subject,
                 workType: e.workType,
+                weight: e.weight,
               ),
             ),
           ),
@@ -256,6 +256,7 @@ class _WorkTypeRow extends StatelessWidget {
                 GradeDot(
                   value: workType.grades[i],
                   size: 28,
+                  weight: workType.weightAt(i),
                   onTap: () => showGradeDetails(
                     context,
                     value: workType.grades[i],
@@ -263,6 +264,7 @@ class _WorkTypeRow extends StatelessWidget {
                     comment: workType.commentAt(i),
                     subject: subject,
                     workType: workType.workType,
+                    weight: workType.weightAt(i),
                   ),
                 ),
             ],

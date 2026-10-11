@@ -3,23 +3,19 @@ import 'lesson.dart';
 import 'mark.dart';
 import 'subject_grade.dart';
 
-/// Одна оценка на уроке — значение, когда получили и (опционально)
-/// тип работы.
+/// Одна оценка на уроке — значение, когда получили, тип работы и вес.
 class LessonGrade {
   final int value;
   final DateTime? receivedAt;
   final String? workType;
 
-  const LessonGrade(this.value, this.receivedAt, {this.workType});
+  /// Вес: 1 или null — обычная, ≥2 — «5²».
+  final int? weight;
+
+  const LessonGrade(this.value, this.receivedAt, {this.workType, this.weight});
 }
 
-/// Быстрый поиск оценок по id урока из schedule_items
-/// (Mark.scheduleLessonId == Lesson.id).
-/// У пары уроков (mergeLessonPairs) secondaryId — id второго урока,
-/// поэтому его оценки тоже подтягиваются.
-///
-/// Отсутствия («Н») в marks больше не приходят — они идут отдельным
-/// потоком из /core/api/student_profiles и живут в LessonAttendanceLookup.
+/// Быстрый поиск оценок по id урока из schedule_items.
 class LessonGradesLookup {
   final Map<int, List<LessonGrade>> _byLessonId;
 
@@ -54,16 +50,22 @@ class LessonGradesLookup {
     for (final m in marks) {
       final id = m.scheduleLessonId;
       if (id == null) continue;
-      final workType =
-          m.workType ??
-          _resolveWorkType(
-            m,
-            subjectName: lessonSubject[id],
-            subjectByName: subjectByName,
-          );
+      final resolved = _resolve(
+        m,
+        subjectName: lessonSubject[id],
+        subjectByName: subjectByName,
+      );
+      final workType = m.workType ?? resolved?.workType;
       map
           .putIfAbsent(id, () => <LessonGrade>[])
-          .add(LessonGrade(m.value, m.createdAt, workType: workType));
+          .add(
+            LessonGrade(
+              m.value,
+              m.createdAt,
+              workType: workType,
+              weight: resolved?.weight,
+            ),
+          );
     }
 
     for (final list in map.values) {
@@ -78,7 +80,7 @@ class LessonGradesLookup {
     return LessonGradesLookup._(map);
   }
 
-  static String? _resolveWorkType(
+  static ({String workType, int? weight})? _resolve(
     Mark mark, {
     String? subjectName,
     required Map<String, SubjectGrade> subjectByName,
@@ -93,16 +95,30 @@ class LessonGradesLookup {
         for (var i = 0; i < wt.grades.length; i++) {
           if (wt.grades[i] != mark.value) continue;
           candidates.add(
-            _WorkTypeCandidate(workType: wt.workType, date: wt.dateAt(i)),
+            _WorkTypeCandidate(
+              workType: wt.workType,
+              date: wt.dateAt(i),
+              weight: wt.weightAt(i),
+            ),
           );
         }
       }
     }
     if (candidates.isEmpty) return null;
-    if (candidates.length == 1) return candidates.first.workType;
+    if (candidates.length == 1) {
+      return (
+        workType: candidates.first.workType,
+        weight: candidates.first.weight,
+      );
+    }
 
     final target = mark.createdAt ?? mark.date;
-    if (target == null) return candidates.first.workType;
+    if (target == null) {
+      return (
+        workType: candidates.first.workType,
+        weight: candidates.first.weight,
+      );
+    }
 
     candidates.sort((a, b) {
       final da = a.date == null
@@ -113,7 +129,10 @@ class LessonGradesLookup {
           : b.date!.difference(target).abs();
       return da.compareTo(db);
     });
-    return candidates.first.workType;
+    return (
+      workType: candidates.first.workType,
+      weight: candidates.first.weight,
+    );
   }
 
   List<LessonGrade> forLesson(Lesson lesson) {
@@ -136,5 +155,6 @@ class LessonGradesLookup {
 class _WorkTypeCandidate {
   final String workType;
   final DateTime? date;
-  const _WorkTypeCandidate({required this.workType, this.date});
+  final int? weight;
+  const _WorkTypeCandidate({required this.workType, this.date, this.weight});
 }

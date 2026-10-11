@@ -5,11 +5,23 @@ class GradeDot extends StatelessWidget {
   final double size;
   final VoidCallback? onTap;
 
-  const GradeDot({super.key, required this.value, this.size = 28, this.onTap});
+  /// Вес оценки. 1 или null — обычная. ≥2 — показываем «5²», «5³» и т.п.
+  final int? weight;
+
+  const GradeDot({
+    super.key,
+    required this.value,
+    this.size = 28,
+    this.onTap,
+    this.weight,
+  });
 
   @override
   Widget build(BuildContext context) {
     final color = gradeColor(value);
+    final w = weight ?? 1;
+    final hasWeight = w > 1;
+
     final dot = Container(
       width: size,
       height: size,
@@ -17,16 +29,9 @@ class GradeDot extends StatelessWidget {
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         shape: BoxShape.circle,
-        border: Border.all(color: color, width: 1),
+        border: Border.all(color: color, width: hasWeight ? 1.5 : 1),
       ),
-      child: Text(
-        '$value',
-        style: TextStyle(
-          color: color,
-          fontSize: size * 0.5,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
+      child: hasWeight ? _weightedContent(color, w) : _plainContent(color),
     );
 
     if (onTap == null) return dot;
@@ -34,6 +39,48 @@ class GradeDot extends StatelessWidget {
       onTap: onTap,
       customBorder: const CircleBorder(),
       child: dot,
+    );
+  }
+
+  Widget _plainContent(Color color) => Text(
+    '$value',
+    style: TextStyle(
+      color: color,
+      fontSize: size * 0.5,
+      fontWeight: FontWeight.w600,
+    ),
+  );
+
+  /// «5²» — основа чуть мельче обычной, вес — ещё мельче и сверху.
+  Widget _weightedContent(Color color, int w) {
+    final baseSize = size * 0.42;
+    final supSize = size * 0.30;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '$value',
+          style: TextStyle(
+            color: color,
+            fontSize: baseSize,
+            fontWeight: FontWeight.w700,
+            height: 1,
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.only(left: size * 0.02, top: size * 0.03),
+          child: Text(
+            '$w',
+            style: TextStyle(
+              color: color,
+              fontSize: supSize,
+              fontWeight: FontWeight.w700,
+              height: 1,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -60,11 +107,13 @@ Future<void> showGradeDetails(
   String? comment,
   String? subject,
   String? workType,
+  int? weight,
 }) {
   final theme = Theme.of(context);
   final hasComment = comment != null && comment.trim().isNotEmpty;
   final hasSubject = subject != null && subject.trim().isNotEmpty;
   final hasWorkType = workType != null && workType.trim().isNotEmpty;
+  final hasWeight = (weight ?? 1) > 1;
   final subtitleParts = <String>[
     if (hasSubject) subject.trim(),
     if (hasWorkType) workType.trim(),
@@ -84,7 +133,7 @@ Future<void> showGradeDetails(
           children: [
             Row(
               children: [
-                GradeDot(value: value, size: 40),
+                GradeDot(value: value, size: 40, weight: weight),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -96,9 +145,6 @@ Future<void> showGradeDetails(
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                      // Подзаголовок: «Алгебра · Контрольная работа».
-                      // Появляется, только если снаружи передали subject
-                      // и/или workType.
                       if (subtitleParts.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
@@ -126,6 +172,20 @@ Future<void> showGradeDetails(
               receivedAt == null ? '—' : _formatDateTime(receivedAt),
               style: theme.textTheme.titleMedium,
             ),
+            if (hasWeight) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Вес',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '×$weight (двойной вес)',
+                style: theme.textTheme.titleMedium,
+              ),
+            ],
             if (hasComment) ...[
               const SizedBox(height: 16),
               Text(
@@ -146,8 +206,7 @@ Future<void> showGradeDetails(
 
 String _formatDateTime(DateTime d) {
   String two(int n) => n.toString().padLeft(2, '0');
-  final date = '${two(d.day)}.${two(d.month)}.${d.year}';
-  // Время неизвестно — API отдал только дату. Не рисуем «00:00».
+  final date = '${two(d.day)}.${two(d.month)}.${two(d.year)}';
   if (d.hour == 0 && d.minute == 0 && d.second == 0) return date;
   return '$date, ${two(d.hour)}:${two(d.minute)}';
 }
