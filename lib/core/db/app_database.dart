@@ -9,7 +9,7 @@ class AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   static const _fileName = 'epos_cache.db';
-  static const _version = 17;
+  static const _version = 18;
 
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
@@ -153,6 +153,22 @@ class AppDatabase {
             );
           }
         }
+        if (oldVersion < 18) {
+          // Колонки для пересборки блока «ДЗ» из кэша без сети:
+          // subject_id — фильтр по предмету для режима дедлайна;
+          // homework_ids_json — сырые id ДЗ из homeworks_to_give.
+          if (!await _columnExists(db, tableLessons, 'subject_id')) {
+            await db.execute(
+              'ALTER TABLE $tableLessons ADD COLUMN subject_id INTEGER',
+            );
+          }
+          if (!await _columnExists(db, tableLessons, 'homework_ids_json')) {
+            await db.execute(
+              "ALTER TABLE $tableLessons "
+              "ADD COLUMN homework_ids_json TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+        }
       },
     );
   }
@@ -171,10 +187,12 @@ class AppDatabase {
         start_time TEXT NOT NULL,
         end_time TEXT NOT NULL,
         subject TEXT NOT NULL,
+        subject_id INTEGER,
         teacher TEXT,
         teacher_id INTEGER,
         room TEXT,
         homework TEXT,
+        homework_ids_json TEXT NOT NULL DEFAULT '[]',
         attachments_json TEXT NOT NULL DEFAULT '[]',
         student_homework_ids_json TEXT NOT NULL DEFAULT '[]',
         is_ec INTEGER NOT NULL DEFAULT 0,

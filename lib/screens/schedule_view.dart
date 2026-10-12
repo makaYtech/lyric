@@ -15,6 +15,7 @@ import '../models/mark.dart';
 import '../models/schedule_override.dart';
 import '../models/subject_grade.dart';
 import '../widgets/common/async_state_view.dart';
+import '../widgets/homework/homework_group_switcher.dart';
 import '../widgets/schedule/day_schedule_card.dart';
 import '../widgets/schedule/overrides_sheet.dart';
 import '../widgets/schedule/selection_toolbar.dart';
@@ -1116,6 +1117,7 @@ class _ScheduleViewState extends State<ScheduleView>
                     : _showOverridesSheet,
                 overridesCount: widget.daysWithOverrides.length,
               ),
+              const HomeworkGroupSwitcher(),
               if (schedule.isNotEmpty)
                 _DayStrip(
                   days: schedule,

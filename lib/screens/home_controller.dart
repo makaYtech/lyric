@@ -192,8 +192,8 @@ class HomeController extends ChangeNotifier {
   DateTime? get homeworksUpdated => _homeworksUpdated;
   bool _homeworksLoading = true;
   bool get homeworksLoading => _homeworksLoading;
-  String? _homeworksError;
   String? get homeworksError => _homeworksError;
+  String? _homeworksError;
 
   late DateTime _weekStart;
   DateTime get weekStart => _weekStart;
@@ -213,10 +213,6 @@ class HomeController extends ChangeNotifier {
   void markScheduleAutoScrolled() {
     if (_scheduleAutoScrolledOnce) return;
     _scheduleAutoScrolledOnce = true;
-    // Колбэк приходит из initState/didUpdateWidget ScheduleView, то есть
-    // во время фазы build. Синхронный notifyListeners отсюда уронит
-    // markNeedsBuild() на уже построенных предках (AppBar, BottomBar).
-    // Откладываем на микротаск — он выполнится сразу после текущего build.
     Future.microtask(() {
       if (!_disposed) _notify();
     });
@@ -257,6 +253,7 @@ class HomeController extends ChangeNotifier {
     await HomeworkPrefs.load();
     await TeacherPrefs.load();
     SchedulePrefs.showOverrides.addListener(_onShowOverridesChanged);
+    HomeworkPrefs.groupByDue.addListener(_onGroupByDueChanged);
 
     try {
       await _loadCachedAll();
@@ -268,14 +265,6 @@ class HomeController extends ChangeNotifier {
     await refreshAll();
   }
 
-  /// Если в хранилище лежит сессия нового flow без cookies (или без
-  /// ключевых auth_token/profile_id) — прогоняем exchange через
-  /// AuthCoordinator. Типичный случай: пользователь обновился со старой
-  /// версии приложения, которая cookies не сохраняла.
-  ///
-  /// Если backfill не удался (сеть/authDead) — молча идём дальше:
-  /// refreshAll() всё равно поймает 401 и сработает обычный путь renew,
-  /// а при authDead покажется reauth-sheet.
   Future<void> _ensureSessionComplete() async {
     final current = AuthCoordinator.instance.session ?? _session;
     if (!current.needsCookieBackfill) return;
@@ -289,12 +278,12 @@ class HomeController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
-    // Инвалидируем все токены, чтобы висящие await'ы не дописали ничего.
     _weekToken++;
     _yearToken++;
     _bellsToken++;
     _scheduleToken++;
     SchedulePrefs.showOverrides.removeListener(_onShowOverridesChanged);
+    HomeworkPrefs.groupByDue.removeListener(_onGroupByDueChanged);
     profileTick.dispose();
     gradesTick.dispose();
     scheduleTick.dispose();
@@ -309,6 +298,29 @@ class HomeController extends ChangeNotifier {
 
   void _onShowOverridesChanged() {
     refreshSchedule(silent: true);
+  }
+
+  /// Переключение группировки ДЗ. Не дёргаем сеть: берём уроки из БД
+  /// и пересобираем блок ДЗ из уже сохранённого годового списка.
+  void _onGroupByDueChanged() {
+    unawaited(_regroupScheduleFromCache());
+  }
+
+  Future<void> _regroupScheduleFromCache() async {
+    if (_disposed) return;
+    try {
+      final regrouped = await _scheduleRepository.regroupFromCache(
+        _weekStart,
+        _selectedYearId,
+        HomeworkPrefs.groupByDue.value,
+      );
+      if (_disposed) return;
+      _schedule = regrouped;
+      scheduleTick.value++;
+      _notify();
+    } catch (e) {
+      debugPrint('regroup из кэша упал: $e');
+    }
   }
 
   void setTabIndex(int i) {
@@ -499,6 +511,9 @@ class HomeController extends ChangeNotifier {
     }
   }
 
+  /// Полный refresh. ДЗ (годовой список) обновляются не здесь, а внутри
+  /// refreshSchedule — там они всё равно нужны, чтобы сохранить в БД
+  /// и пересобирать расписание при смене режима группировки офлайн.
   Future<void> refreshAll() async {
     if (_refreshingAll) return;
     _refreshingAll = true;
@@ -509,7 +524,6 @@ class HomeController extends ChangeNotifier {
         refreshProfile(),
         refreshGrades(),
         refreshSchedule(),
-        refreshHomeworks(),
         _refreshTeachers(),
         refreshAttendances(),
       ]);
@@ -626,10 +640,16 @@ class HomeController extends ChangeNotifier {
     } catch (_) {}
   }
 
+  /// Обновление расписания — и в БД, и в памяти. Здесь же обновляется
+  /// годовой список ДЗ (в БД — для пересборки блока ДЗ офлайн, в память
+  /// — для вкладки ДЗ). Все запросы к student_homeworks идут ОДИН раз.
   Future<void> refreshSchedule({bool silent = false}) {
     final myToken = ++_scheduleToken;
     return _runRefresh(
-      setLoading: (v) => _scheduleLoading = v,
+      setLoading: (v) {
+        _scheduleLoading = v;
+        _homeworksLoading = v;
+      },
       setError: (e) => _scheduleError = e,
       revision: scheduleTick,
       body: () async {
@@ -641,36 +661,34 @@ class HomeController extends ChangeNotifier {
         final monday = _weekStart;
         final sunday = monday.add(const Duration(days: 6));
         final yearId = _selectedYearId;
+        final range = _academicYearRange(DateTime.now());
 
-        // EC-ДЗ тянем в этом же заходе: из него собираем ec_group_ids
-        // для расписания внеурочки. Если на этой неделе их нет —
-        // оставляем старые (уже лежат в _ecGroupIds из prefs).
-        final ecHomeworksFut = _ecHomeworkService.fetchEcHomeworks(
-          tokens,
-          from: monday,
-          to: sunday,
-          academicYearId: yearId,
-        );
-
-        final results = await Future.wait<Object>([
-          _scheduleRepository.refresh(
+        // Параллельно: EC-ДЗ (для ec_group_ids), marks за неделю и
+        // годовой список ДЗ. Годовой идёт в БД через репозиторий и
+        // используется как источник для матчинга ДЗ к урокам.
+        final parallel = await Future.wait<Object>([
+          _ecHomeworkService.fetchEcHomeworks(
             tokens,
-            monday,
-            yearId,
-            _groupIds,
-            ecGroupIds: _ecGroupIds,
-            classUnitIds: _classUnitIds,
+            from: monday,
+            to: sunday,
+            academicYearId: yearId,
           ),
           _marksRepository.refresh(tokens, yearId, from: monday, to: sunday),
-          ecHomeworksFut,
+          _homeworkRepository.refresh(
+            tokens,
+            yearId,
+            from: range.$1,
+            to: range.$2,
+          ),
         ]);
         if (myToken != _scheduleToken || _disposed) return;
         if (yearId != _selectedYearId || monday != _weekStart) return;
 
-        // Обновляем ec_group_ids, если из ДЗ вытащили что-то новое.
-        // В этом проходе EC-часть расписания была пустой (если групп
-        // ещё не знали) — сделаем ещё один заход с новыми группами.
-        final ecHomeworks = results[2] as List<EcHomework>;
+        final ecHomeworks = parallel[0] as List<EcHomework>;
+        final marks = parallel[1] as List<Mark>;
+        final homeworks = parallel[2] as List<Homework>;
+
+        // Обновляем ec_group_ids, если появились новые.
         final newEcGroups = <int>{
           for (final h in ecHomeworks)
             if (h.ecGroupId != null) h.ecGroupId!,
@@ -683,13 +701,29 @@ class HomeController extends ChangeNotifier {
           await _cache.saveString(_ecGroupIdsKey, _ecGroupIds.join(','));
         }
 
-        final schedule = results[0] as List<DaySchedule>;
-        final marks = results[1] as List<Mark>;
-
-        final updated = await _scheduleRepository.lastUpdated(monday, yearId);
+        // Сам запрос расписания. ДЗ передаём готовыми — сервис их не тянет.
+        final schedule = await _scheduleRepository.refresh(
+          tokens,
+          monday,
+          yearId,
+          _groupIds,
+          ecGroupIds: _ecGroupIds,
+          classUnitIds: _classUnitIds,
+          groupHomeworksByDue: HomeworkPrefs.groupByDue.value,
+          allHomeworks: homeworks,
+        );
         if (myToken != _scheduleToken || _disposed) return;
         if (yearId != _selectedYearId || monday != _weekStart) return;
 
+        final updatedSchedule = await _scheduleRepository.lastUpdated(
+          monday,
+          yearId,
+        );
+        final updatedHomeworks = await _homeworkRepository.lastUpdated(yearId);
+        if (myToken != _scheduleToken || _disposed) return;
+        if (yearId != _selectedYearId || monday != _weekStart) return;
+
+        // Обновляем set teacher_id — для фильтра "только мои учителя".
         final newIds = <int>{..._studentTeacherIds};
         for (final day in schedule) {
           for (final l in day.lessons) {
@@ -704,11 +738,13 @@ class HomeController extends ChangeNotifier {
 
         _schedule = schedule;
         _marks = marks;
-        _scheduleUpdated = updated;
+        _homeworks = homeworks;
+        _scheduleUpdated = updatedSchedule;
+        _homeworksUpdated = updatedHomeworks;
         await _refreshOverridesMeta();
+        if (myToken != _scheduleToken || _disposed) return;
+        homeworksTick.value++;
 
-        // EC-группы только что узнали — сейчас EC-расписание
-        // отсутствует. Делаем ещё один тихий заход, чтобы подтянуть его.
         if (groupsChanged && _ecGroupIds.isNotEmpty) {
           unawaited(refreshSchedule(silent: true));
         }
@@ -726,6 +762,8 @@ class HomeController extends ChangeNotifier {
     return true;
   }
 
+  /// Обновление ДЗ вручную — вызывается кнопкой обновления на вкладке ДЗ
+  /// и при смене года. Тянет весь учебный год и пишет в БД.
   Future<void> refreshHomeworks({bool silent = false}) => _runRefresh(
     setLoading: (v) => _homeworksLoading = v,
     setError: (e) => _homeworksError = e,

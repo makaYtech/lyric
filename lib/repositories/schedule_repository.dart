@@ -1,7 +1,10 @@
+import '../core/db/homework_dao.dart';
 import '../core/db/schedule_dao.dart';
 import '../core/db/schedule_overrides_dao.dart';
+import '../core/schedule/homework_matching.dart';
 import '../core/settings/schedule_prefs.dart';
 import '../models/day_schedule.dart';
+import '../models/homework.dart';
 import '../models/lesson.dart';
 import '../models/schedule_override.dart';
 import '../services/auth_service.dart';
@@ -11,14 +14,17 @@ class ScheduleRepository {
   final ScheduleService _service;
   final ScheduleDao _dao;
   final ScheduleOverridesDao _overridesDao;
+  final HomeworkDao _homeworkDao;
 
   ScheduleRepository({
     ScheduleService? service,
     ScheduleDao? dao,
     ScheduleOverridesDao? overridesDao,
+    HomeworkDao? homeworkDao,
   }) : _service = service ?? ScheduleService(),
        _dao = dao ?? ScheduleDao(),
-       _overridesDao = overridesDao ?? ScheduleOverridesDao();
+       _overridesDao = overridesDao ?? ScheduleOverridesDao(),
+       _homeworkDao = homeworkDao ?? HomeworkDao();
 
   Future<List<DaySchedule>?> loadCached(
     DateTime weekStart,
@@ -42,6 +48,8 @@ class ScheduleRepository {
     List<int> groupIds, {
     List<int> ecGroupIds = const [],
     List<int> classUnitIds = const [],
+    bool groupHomeworksByDue = false,
+    required List<Homework> allHomeworks,
   }) async {
     final monday = _monday(weekStart);
     final days = await _service.fetchSchedule(
@@ -51,6 +59,8 @@ class ScheduleRepository {
       groupIds: groupIds,
       ecGroupIds: ecGroupIds,
       classUnitIds: classUnitIds,
+      groupHomeworksByDue: groupHomeworksByDue,
+      allHomeworks: allHomeworks,
     );
     await _dao.saveWeek(academicYearId, days);
 
@@ -58,6 +68,60 @@ class ScheduleRepository {
         ? await _overridesDao.loadWeek(academicYearId, monday)
         : const <ScheduleOverride>[];
     return applyScheduleOverrides(days, overrides);
+  }
+
+  /// Пересобрать блок «ДЗ» в сохранённой неделе, не обращаясь к сети.
+  /// Берём сырые `homeworkIds` из lessons + годовой список ДЗ из БД и
+  /// заново матчим по текущему режиму (groupByDue).
+  ///
+  /// Используется при переключении тумблера «Ещё немного — и кранты»
+  /// на вкладке расписания. Никаких HTTP-запросов не делает.
+  Future<List<DaySchedule>> regroupFromCache(
+    DateTime weekStart,
+    int academicYearId,
+    bool groupByDue,
+  ) async {
+    final monday = _monday(weekStart);
+    final days = await _dao.loadWeek(academicYearId, monday);
+    if (days.isEmpty) return days;
+
+    final homeworks = await _homeworkDao.loadAll(academicYearId);
+    final regrouped = _regroup(days, homeworks, groupByDue);
+
+    final overrides = SchedulePrefs.showOverrides.value
+        ? await _overridesDao.loadWeek(academicYearId, monday)
+        : const <ScheduleOverride>[];
+    return applyScheduleOverrides(regrouped, overrides);
+  }
+
+  List<DaySchedule> _regroup(
+    List<DaySchedule> days,
+    List<Homework> allHomeworks,
+    bool groupByDue,
+  ) {
+    final maps = HomeworkMatching.buildMaps(allHomeworks);
+    return days.map((day) {
+      final lessons = day.lessons.map((l) {
+        // Синтетические окна и EC-уроки не трогаем: у первых нет
+        // homeworkIds и subjectId, у вторых ДЗ приходят отдельно.
+        if (l.isGap || l.isEc) return l;
+
+        final hw = HomeworkMatching.forLesson(
+          subjectId: l.subjectId,
+          date: day.date,
+          sourceHomeworkIds: l.homeworkIds,
+          byId: maps.byId,
+          byDue: maps.byDue,
+          groupByDue: groupByDue,
+        );
+        return l.copyWith(
+          homeworks: hw.texts,
+          studentHomeworkIds: hw.ids,
+          attachments: hw.attachments,
+        );
+      }).toList();
+      return DaySchedule(date: day.date, lessons: lessons);
+    }).toList();
   }
 
   Future<DateTime?> lastUpdated(DateTime weekStart, int academicYearId) =>

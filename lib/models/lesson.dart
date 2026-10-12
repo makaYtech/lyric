@@ -12,7 +12,17 @@ class Lesson {
   final String subject;
   final int? subjectId;
   final List<String> homeworks;
+
+  /// id ДЗ (homework.id) из homeworks_to_give — СЫРЫЕ. Из них
+  /// восстанавливается блок «ДЗ» при пересборке из кэша: по этим id
+  /// находим запись в student_homeworks, чтобы получить due_date и
+  /// subject_id. В БД лежат отдельной колонкой.
+  final List<int> homeworkIds;
+
+  /// id записей student_homework — то, что уходит в PUT при
+  /// прикреплении своего файла («Моя работа»).
   final List<int> studentHomeworkIds;
+
   final List<HomeworkAttachment> attachments;
   final String? teacher;
   final int? teacherId;
@@ -27,11 +37,7 @@ class Lesson {
   /// startTime/endTime. В БД НЕ сохраняется, вычисляется на лету.
   final bool isGap;
 
-  /// Внеурочное занятие из /ec/api/ec_schedule_items («Разговоры о
-  /// важном», «Россия — мои горизонты» и т.п.). Отличается источником
-  /// данных — обычный урок приходит из /jersey/api/schedule_items.
-  /// В UI помечается чипом «внеурочная деятельность», чтобы визуально не смешивать
-  /// с обычной программой.
+  /// Внеурочное занятие из /ec/api/ec_schedule_items.
   final bool isEc;
 
   const Lesson({
@@ -42,6 +48,7 @@ class Lesson {
     required this.subject,
     this.subjectId,
     this.homeworks = const [],
+    this.homeworkIds = const [],
     this.attachments = const [],
     this.teacher,
     this.teacherId,
@@ -70,6 +77,7 @@ class Lesson {
     String? subject,
     int? subjectId,
     List<String>? homeworks,
+    List<int>? homeworkIds,
     List<HomeworkAttachment>? attachments,
     String? teacher,
     int? teacherId,
@@ -88,6 +96,7 @@ class Lesson {
     subject: subject ?? this.subject,
     subjectId: subjectId ?? this.subjectId,
     homeworks: homeworks ?? this.homeworks,
+    homeworkIds: homeworkIds ?? this.homeworkIds,
     attachments: attachments ?? this.attachments,
     teacher: teacher ?? this.teacher,
     teacherId: teacherId ?? this.teacherId,
@@ -107,6 +116,7 @@ class Lesson {
     subject: json['subject'] as String? ?? '—',
     subjectId: json['subject_id'] as int?,
     homeworks: decodeHomeworks(json['homework']),
+    homeworkIds: _decodeIds(json['homework_ids']),
     attachments: _decodeAttachments(json['attachments']),
     teacher: json['teacher'] as String?,
     teacherId: json['teacher_id'] as int?,
@@ -122,6 +132,7 @@ class Lesson {
     'subject': subject,
     'subject_id': subjectId,
     'homework': jsonEncode(homeworks),
+    'homework_ids': homeworkIds,
     'attachments': attachments.map((a) => a.toJson()).toList(),
     'teacher': teacher,
     'teacher_id': teacherId,
@@ -213,6 +224,12 @@ Lesson _mergeTwo(Lesson a, Lesson b) {
     if (seen.add(att.url)) attachments.add(att);
   }
 
+  final seenHw = <int>{};
+  final homeworkIds = <int>[];
+  for (final id in [...a.homeworkIds, ...b.homeworkIds]) {
+    if (seenHw.add(id)) homeworkIds.add(id);
+  }
+
   return Lesson(
     id: a.id,
     secondaryId: b.id,
@@ -221,6 +238,7 @@ Lesson _mergeTwo(Lesson a, Lesson b) {
     subject: a.subject,
     subjectId: a.subjectId,
     homeworks: homeworks,
+    homeworkIds: homeworkIds,
     attachments: attachments,
     teacher: a.teacher,
     teacherId: a.teacherId,

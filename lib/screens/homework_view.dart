@@ -6,6 +6,7 @@ import '../core/util/labels.dart';
 import '../models/homework.dart';
 import '../widgets/common/async_state_view.dart';
 import '../widgets/homework/homework_card.dart';
+import '../widgets/homework/homework_group_switcher.dart';
 
 class HomeworkView extends StatefulWidget {
   final List<Homework>? homeworks;
@@ -225,86 +226,37 @@ class _HomeworkViewState extends State<HomeworkView>
         hasData: _dates.isNotEmpty,
         contentBuilder: (context) {
           final items = _forSelectedDate();
-          return ValueListenableBuilder<bool>(
-            valueListenable: HomeworkPrefs.groupByDue,
-            builder: (context, groupByDue, _) => Column(
-              children: [
-                _ModeSwitcher(
-                  groupByDue: groupByDue,
-                  onChanged: HomeworkPrefs.setGroupByDue,
-                ),
-                _DateStrip(
-                  dates: _dates,
-                  selectedIndex: _selectedIndex,
-                  onSelected: _select,
-                  itemScrollController: _itemScrollController,
-                ),
-                const Divider(height: 1),
-                Expanded(
-                  child: items.isEmpty
-                      ? ListView(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(16),
-                          children: const [
-                            SizedBox(height: 80),
-                            Center(child: Text('Нет ДЗ на этот день')),
-                          ],
-                        )
-                      : ListView.separated(
-                          physics: const AlwaysScrollableScrollPhysics(),
-                          padding: const EdgeInsets.all(16),
-                          itemCount: items.length,
-                          separatorBuilder: (_, _) =>
-                              const SizedBox(height: 10),
-                          itemBuilder: (_, i) =>
-                              HomeworkCard(homework: items[i]),
-                        ),
-                ),
-              ],
-            ),
+          return Column(
+            children: [
+              const HomeworkGroupSwitcher(),
+              _DateStrip(
+                dates: _dates,
+                selectedIndex: _selectedIndex,
+                onSelected: _select,
+                itemScrollController: _itemScrollController,
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: items.isEmpty
+                    ? ListView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        children: const [
+                          SizedBox(height: 80),
+                          Center(child: Text('Нет ДЗ на этот день')),
+                        ],
+                      )
+                    : ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        itemCount: items.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        itemBuilder: (_, i) => HomeworkCard(homework: items[i]),
+                      ),
+              ),
+            ],
           );
         },
-      ),
-    );
-  }
-}
-
-class _ModeSwitcher extends StatelessWidget {
-  final bool groupByDue;
-  final ValueChanged<bool> onChanged;
-
-  const _ModeSwitcher({required this.groupByDue, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Ещё немного — и кранты',
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  groupByDue
-                      ? 'Дедлайн — на выбранный день'
-                      : 'Задано в выбранный день',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(value: groupByDue, onChanged: onChanged),
-        ],
       ),
     );
   }

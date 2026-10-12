@@ -17,8 +17,7 @@ class ScheduleDao {
     final now = DateTime.now().toIso8601String();
 
     // Находим границы недели по первому дню. Если список пустой —
-    // сохранять нечего, выходим. Пустые дни всё равно должны попасть
-    // в БД как отсутствие уроков (delete их и так снесёт).
+    // сохранять нечего, выходим.
     if (days.isEmpty) return;
     final monday = days.first.date;
     final sunday = monday.add(const Duration(days: 6));
@@ -45,10 +44,12 @@ class ScheduleDao {
             'start_time': lesson.startTime,
             'end_time': lesson.endTime,
             'subject': lesson.subject,
+            'subject_id': lesson.subjectId,
             'teacher': lesson.teacher,
             'teacher_id': lesson.teacherId,
             'room': lesson.room,
             'homework': jsonEncode(lesson.homeworks),
+            'homework_ids_json': jsonEncode(lesson.homeworkIds),
             'updated_at': now,
             'attachments_json': jsonEncode(
               lesson.attachments.map((a) => a.toJson()).toList(),
@@ -84,10 +85,12 @@ class ScheduleDao {
               startTime: row['start_time'] as String,
               endTime: row['end_time'] as String,
               subject: row['subject'] as String,
+              subjectId: row['subject_id'] as int?,
               teacher: row['teacher'] as String?,
               teacherId: row['teacher_id'] as int?,
               room: row['room'] as String?,
               homeworks: Lesson.decodeHomeworks(row['homework'] as String?),
+              homeworkIds: _decodeIds(row['homework_ids_json']),
               attachments: _decodeAttachments(row['attachments_json']),
               studentHomeworkIds: _decodeIds(row['student_homework_ids_json']),
               isEc: (row['is_ec'] as int? ?? 0) == 1,

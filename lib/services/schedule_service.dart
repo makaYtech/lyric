@@ -1,29 +1,33 @@
 import '../core/network/api_client.dart';
+import '../core/schedule/homework_matching.dart';
 import '../core/util/date_time.dart';
 import '../core/util/names.dart';
 import '../models/day_schedule.dart';
 import '../models/ec_homework.dart';
 import '../models/ec_schedule_item.dart';
-import '../models/homework_attachment.dart';
+import '../models/homework.dart';
 import '../models/lesson.dart';
 import '../models/room_info.dart';
 import '../models/schedule_item.dart';
-import '../models/student_homework.dart';
 import '../models/teacher_profile.dart';
 import 'auth_service.dart';
 import 'ec_homework_service.dart';
 import 'ec_schedule_service.dart';
 
-/// Реальное расписание через шесть эндпоинтов:
+/// Реальное расписание через пять эндпоинтов:
 /// - /jersey/api/schedule_items     — обычные уроки (время, предмет,
 ///                                    teacher_id, room_id, hw-id);
-/// - /core/api/student_homeworks    — тексты ДЗ по homework_id;
 /// - /core/api/teacher_profiles     — ФИО учителей по teacher_id;
 /// - /core/api/rooms                — номер кабинета по room_id
 ///                                    (в schedule_items есть только room_name,
 ///                                    человеческий номер — только тут);
 /// - /ec/api/ec_schedule_items      — внеурочные занятия;
 /// - /ec/api/ec_student_homeworks   — тексты ДЗ внеурочки.
+///
+/// ДЗ (student_homeworks) тянет НЕ этот сервис, а HomeController —
+/// ему нужно сохранить годовой список в БД, чтобы потом пересобирать
+/// расписание при смене режима группировки офлайн. Сюда он приходит
+/// уже готовым через параметр allHomeworks.
 ///
 /// group_id приходит снаружи (из /core/api/student_profiles → groups[]),
 /// потому что у каждого ученика он свой. Без него schedule_items
@@ -55,14 +59,19 @@ class ScheduleService {
     required List<int> groupIds,
     List<int> ecGroupIds = const [],
     List<int> classUnitIds = const [],
+    bool groupHomeworksByDue = false,
+    required List<Homework> allHomeworks,
   }) async {
     final monday = DateTime(weekStart.year, weekStart.month, weekStart.day);
     final sunday = monday.add(const Duration(days: 6));
 
-    // Первая волна — четыре запроса параллельно.
+    // Мапы для матчинга ДЗ к урокам. Одна и та же логика используется
+    // при пересборке из кэша — см. HomeworkMatching.
+    final maps = HomeworkMatching.buildMaps(allHomeworks);
+
+    // Первая волна — три запроса параллельно.
     final results = await Future.wait<Object>([
       _fetchItems(tokens, monday, sunday, academicYearId, groupIds),
-      _fetchHomeworks(tokens, monday, sunday, academicYearId),
       _ecSchedule.fetchEcItems(
         tokens,
         from: monday,
@@ -79,9 +88,8 @@ class ScheduleService {
       ),
     ]);
     final items = results[0] as List<ScheduleItem>;
-    final homeworks = results[1] as Map<int, StudentHomework>;
-    final ecItems = results[2] as List<EcScheduleItem>;
-    final ecHomeworks = results[3] as List<EcHomework>;
+    final ecItems = results[1] as List<EcScheduleItem>;
+    final ecHomeworks = results[2] as List<EcHomework>;
 
     // Учителя и кабинеты — второй волной, id известны только после
     // первого запроса. id-шники собираем и из обычных, и из EC.
@@ -115,10 +123,6 @@ class ScheduleService {
     // например "Илья Муромец"). А название предмета ("Разговоры
     // о важном", "Россия — мои горизонты") лежит в
     // ec_activity.name внутри ответа ec_student_homeworks.
-    //
-    // Поэтому строим мапу id → name из только что загруженных EC-ДЗ.
-    // Если на конкретном уроке из этой недели ДЗ не оказалось —
-    // подставим тему как fallback (лучше, чем ничего).
     final ecActivityNames = <int, String>{};
     for (final h in ecHomeworks) {
       final id = h.ecActivityId;
@@ -140,6 +144,15 @@ class ScheduleService {
     for (final item in items) {
       if (item.date.isBefore(monday) || item.date.isAfter(sunday)) continue;
 
+      final hw = HomeworkMatching.forLesson(
+        subjectId: item.subjectId,
+        date: item.date,
+        sourceHomeworkIds: item.homeworkIds,
+        byId: maps.byId,
+        byDue: maps.byDue,
+        groupByDue: groupHomeworksByDue,
+      );
+
       byDate
           .putIfAbsent(isoDate(item.date), () => [])
           .add(
@@ -149,12 +162,10 @@ class ScheduleService {
               endTime: item.endTime,
               subject: item.subjectName,
               subjectId: item.subjectId,
-              homeworks: _homeworkTexts(item.homeworkIds, homeworks),
-              studentHomeworkIds: _studentHomeworkIds(
-                item.homeworkIds,
-                homeworks,
-              ),
-              attachments: _homeworkAttachments(item.homeworkIds, homeworks),
+              homeworks: hw.texts,
+              homeworkIds: item.homeworkIds,
+              studentHomeworkIds: hw.ids,
+              attachments: hw.attachments,
               teacher: item.teacherId == null ? null : teachers[item.teacherId],
               teacherId: item.teacherId,
               room: _roomLine(item.roomId, item.roomName, rooms),
@@ -182,7 +193,7 @@ class ScheduleService {
       for (final hwId in allHwIds) {
         final h = ecHwByHomeworkId[hwId];
         if (h == null) continue;
-        if (!_isMeaningfulText(h.description)) continue;
+        if (!HomeworkMatching.isMeaningful(h.description)) continue;
         hwTexts.add(h.description.trim());
       }
 
@@ -213,58 +224,6 @@ class ScheduleService {
       lessons.sort((a, b) => a.startTime.compareTo(b.startTime));
       return DaySchedule(date: day, lessons: lessons);
     });
-  }
-
-  /// Проверка «есть ли в тексте что-то, кроме «не задано»». Работает
-  /// по строке — общая для обычных StudentHomework и EC-ДЗ.
-  bool _isMeaningfulText(String? raw) {
-    if (raw == null) return false;
-    final text = raw.trim();
-    if (text.isEmpty) return false;
-    final normalized = text.toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
-    return normalized != 'не задано';
-  }
-
-  bool _isMeaningful(StudentHomework? hw) => _isMeaningfulText(hw?.description);
-
-  /// Тексты ДЗ по всем id урока, в порядке homeworks_to_give.
-  List<String> _homeworkTexts(List<int> ids, Map<int, StudentHomework> map) {
-    final result = <String>[];
-    for (final id in ids) {
-      final hw = map[id];
-      if (!_isMeaningful(hw)) continue;
-      result.add(hw!.description.trim());
-    }
-    return result;
-  }
-
-  /// id записей student_homework — строго параллельно _homeworkTexts.
-  List<int> _studentHomeworkIds(List<int> ids, Map<int, StudentHomework> map) {
-    final result = <int>[];
-    for (final id in ids) {
-      final hw = map[id];
-      if (!_isMeaningful(hw)) continue;
-      result.add(hw!.id);
-    }
-    return result;
-  }
-
-  /// Собираем вложения со всех ДЗ урока, дедуп по url. Если у одного
-  /// урока три ДЗ и в каждом — свой pdf, в модалке будет три кнопки.
-  List<HomeworkAttachment> _homeworkAttachments(
-    List<int> ids,
-    Map<int, StudentHomework> map,
-  ) {
-    final seen = <String>{};
-    final result = <HomeworkAttachment>[];
-    for (final id in ids) {
-      final hw = map[id];
-      if (hw == null) continue;
-      for (final a in hw.attachments) {
-        if (seen.add(a.url)) result.add(a);
-      }
-    }
-    return result;
   }
 
   /// "Кабинет: 226" по умолчанию, либо "Спортивный зал: 226" /
@@ -315,34 +274,7 @@ class ScheduleService {
         .toList();
   }
 
-  /// При ошибке тихо возвращаем пустую карту — расписание отрисуется
-  /// без ДЗ, это не повод ронять весь экран.
-  Future<Map<int, StudentHomework>> _fetchHomeworks(
-    EposTokens tokens,
-    DateTime from,
-    DateTime to,
-    int academicYearId,
-  ) async {
-    final uri = Uri.parse(
-      'https://edu-epos.permkrai.ru/core/api/student_homeworks'
-      '?begin_date=${dotDate(from)}'
-      '&end_date=${dotDate(to)}'
-      '&academic_year_id=$academicYearId'
-      '&student_profile_id=${tokens.profileId}'
-      '&page=1'
-      '&per_page=1000'
-      '&pid=${tokens.profileId}',
-    );
-    final decoded = await _api.getList(uri, tokens, attempts: 1, silent: true);
-    final map = <int, StudentHomework>{};
-    for (final raw in decoded.whereType<Map<String, dynamic>>()) {
-      final hw = StudentHomework.fromJson(raw);
-      if (hw.homeworkId > 0) map[hw.homeworkId] = hw;
-    }
-    return map;
-  }
-
-  /// Аналогично — если учителя не подтянулись, уроки отрисуются без ФИО.
+  /// Если учителя не подтянулись — уроки отрисуются без ФИО.
   Future<Map<int, String>> _fetchTeachers(
     EposTokens tokens,
     Set<int> ids,
@@ -364,8 +296,8 @@ class ScheduleService {
     return map;
   }
 
-  /// Аналогично — если номера кабинетов не подтянулись, останется
-  /// хотя бы room_name из schedule_items (без номера).
+  /// Если номера кабинетов не подтянулись — останется хотя бы room_name
+  /// из schedule_items (без номера).
   Future<Map<int, RoomInfo>> _fetchRooms(
     EposTokens tokens,
     Set<int> ids,
