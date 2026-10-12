@@ -1,43 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Пользовательский выбор оформления. Отдельный enum, а не ThemeMode:
+/// «Material» — это не «светлая/тёмная/системная», а отдельный режим.
+/// Он следует системной светлой/тёмной теме И берёт акцентные цвета
+/// из палитры Android 12+ (Material You / dynamic color).
+enum AppThemeChoice { light, dark, system, material }
+
 /// Хранит и сохраняет выбранную тему приложения между запусками.
 /// По умолчанию — тёмная (по просьбе).
 ///
-/// ThemeMode.system заставляет MaterialApp следовать системному
-/// светлому/тёмному режиму устройства. Настоящую кастомную цветовую
-/// тему устройства (Material You / динамические цвета) сюда не примешиваем —
-/// это отдельная история, см. DynamicColorBuilder в main.dart.
+/// «Material» — ЕДИНСТВЕННЫЙ режим, где подключаются динамические цвета
+/// устройства. Для light/dark/system используется фиксированный seed.
 class ThemeController extends ChangeNotifier {
   static const _prefsKey = 'theme_mode';
 
-  ThemeMode _mode;
-  ThemeController._(this._mode);
+  AppThemeChoice _choice;
+  ThemeController._(this._choice);
 
-  ThemeMode get mode => _mode;
+  AppThemeChoice get choice => _choice;
+
+  /// Что передать в `MaterialApp.themeMode`.
+  /// «Material» следует системной светлой/тёмной теме.
+  ThemeMode get mode => switch (_choice) {
+    AppThemeChoice.light => ThemeMode.light,
+    AppThemeChoice.dark => ThemeMode.dark,
+    AppThemeChoice.system => ThemeMode.system,
+    AppThemeChoice.material => ThemeMode.system,
+  };
+
+  /// Подключать ли динамические цвета (Material You). true — только
+  /// при явном выборе «Material»; иначе всегда фиксированный seed.
+  bool get useMaterialYou => _choice == AppThemeChoice.material;
 
   static Future<ThemeController> load() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_prefsKey);
-    final mode = switch (saved) {
-      'light' => ThemeMode.light,
-      'system' => ThemeMode.system,
-      _ => ThemeMode.dark,
+    final choice = switch (saved) {
+      'light' => AppThemeChoice.light,
+      'system' => AppThemeChoice.system,
+      'material' => AppThemeChoice.material,
+      _ => AppThemeChoice.dark,
     };
-    return ThemeController._(mode);
+    return ThemeController._(choice);
   }
 
-  Future<void> setMode(ThemeMode mode) async {
-    if (_mode == mode) return;
-    _mode = mode;
+  Future<void> setChoice(AppThemeChoice choice) async {
+    if (_choice == choice) return;
+    _choice = choice;
     notifyListeners();
 
     final prefs = await SharedPreferences.getInstance();
-    final value = switch (mode) {
-      ThemeMode.light => 'light',
-      ThemeMode.dark => 'dark',
-      ThemeMode.system => 'system',
-    };
-    await prefs.setString(_prefsKey, value);
+    await prefs.setString(_prefsKey, choice.name);
   }
 }

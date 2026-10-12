@@ -428,33 +428,43 @@ class SettingsScreen extends StatelessWidget {
             _SectionHeader(icon: Icons.palette_outlined, title: 'Внешний вид'),
             _SettingsCard(
               children: [
-                RadioListTile<ThemeMode>(
+                RadioListTile<AppThemeChoice>(
                   title: const Text('Светлая'),
-                  value: ThemeMode.light,
-                  groupValue: themeController.mode,
-                  onChanged: (v) => themeController.setMode(v!),
+                  value: AppThemeChoice.light,
+                  groupValue: themeController.choice,
+                  onChanged: (v) => themeController.setChoice(v!),
                 ),
                 const Divider(height: 1),
-                RadioListTile<ThemeMode>(
+                RadioListTile<AppThemeChoice>(
                   title: const Text('Тёмная'),
-                  value: ThemeMode.dark,
-                  groupValue: themeController.mode,
-                  onChanged: (v) => themeController.setMode(v!),
+                  value: AppThemeChoice.dark,
+                  groupValue: themeController.choice,
+                  onChanged: (v) => themeController.setChoice(v!),
                 ),
                 const Divider(height: 1),
-                RadioListTile<ThemeMode>(
+                RadioListTile<AppThemeChoice>(
                   title: const Text('Как в системе'),
                   subtitle: const Text(
-                    'Следует теме устройства. На Android 12+ подхватывает '
-                    'акцентные цвета твоей темы (Material You)',
+                    'Следует светлой/тёмной теме устройства. '
+                    'Цвета приложения фиксированные',
                   ),
-                  value: ThemeMode.system,
-                  groupValue: themeController.mode,
-                  onChanged: (v) => themeController.setMode(v!),
+                  value: AppThemeChoice.system,
+                  groupValue: themeController.choice,
+                  onChanged: (v) => themeController.setChoice(v!),
+                ),
+                const Divider(height: 1),
+                RadioListTile<AppThemeChoice>(
+                  title: const Text('Material You'),
+                  subtitle: const Text(
+                    'Тема и акцентные цвета берутся у устройства (Android 12+). '
+                    'Следует системной светлой/тёмной теме',
+                  ),
+                  value: AppThemeChoice.material,
+                  groupValue: themeController.choice,
+                  onChanged: (v) => themeController.setChoice(v!),
                 ),
               ],
             ),
-
             // 2. Расписание
             _SectionHeader(
               icon: Icons.calendar_today_outlined,

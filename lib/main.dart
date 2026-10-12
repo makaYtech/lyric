@@ -60,25 +60,29 @@ class EposApp extends StatelessWidget {
                   )
                 : LoginScreen(themeController: themeController);
 
+            // Динамические цвета подключаем ТОЛЬКО в режиме «Material».
+            // Для light/dark/system всегда идёт фиксированный seed, чтобы
+            // акцентные цвета не «протекали» в обычные темы.
+            final useDynamic =
+                themeController.useMaterialYou && lightDynamic != null;
+
+            final lightScheme = useDynamic
+                ? lightDynamic!
+                : ColorScheme.fromSeed(seedColor: Colors.indigo);
+
+            final darkScheme =
+                themeController.useMaterialYou && darkDynamic != null
+                ? darkDynamic!
+                : ColorScheme.fromSeed(
+                    seedColor: Colors.indigo,
+                    brightness: Brightness.dark,
+                  );
+
             return MaterialApp(
               title: 'ЭПОС',
               themeMode: themeController.mode,
-              theme: ThemeData(
-                useMaterial3: true,
-                colorScheme:
-                    lightDynamic ??
-                    ColorScheme.fromSeed(seedColor: Colors.indigo),
-              ),
-              darkTheme: ThemeData(
-                useMaterial3: true,
-                brightness: Brightness.dark,
-                colorScheme:
-                    darkDynamic ??
-                    ColorScheme.fromSeed(
-                      seedColor: Colors.indigo,
-                      brightness: Brightness.dark,
-                    ),
-              ),
+              theme: ThemeData(useMaterial3: true, colorScheme: lightScheme),
+              darkTheme: ThemeData(useMaterial3: true, colorScheme: darkScheme),
               home: home,
             );
           },
