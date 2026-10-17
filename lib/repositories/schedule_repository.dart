@@ -3,6 +3,7 @@ import '../core/db/schedule_dao.dart';
 import '../core/db/schedule_overrides_dao.dart';
 import '../core/schedule/homework_matching.dart';
 import '../core/settings/schedule_prefs.dart';
+import '../core/util/date_time.dart';
 import '../models/day_schedule.dart';
 import '../models/homework.dart';
 import '../models/lesson.dart';
@@ -30,7 +31,7 @@ class ScheduleRepository {
     DateTime weekStart,
     int academicYearId,
   ) async {
-    final monday = _monday(weekStart);
+    final monday = mondayOf(weekStart);
     final days = await _dao.loadWeek(academicYearId, monday);
     final hasAny = days.any((d) => d.lessons.isNotEmpty);
     if (!hasAny) return null;
@@ -51,7 +52,7 @@ class ScheduleRepository {
     bool groupHomeworksByDue = false,
     required List<Homework> allHomeworks,
   }) async {
-    final monday = _monday(weekStart);
+    final monday = mondayOf(weekStart);
     final days = await _service.fetchSchedule(
       tokens,
       weekStart: weekStart,
@@ -81,7 +82,7 @@ class ScheduleRepository {
     int academicYearId,
     bool groupByDue,
   ) async {
-    final monday = _monday(weekStart);
+    final monday = mondayOf(weekStart);
     final days = await _dao.loadWeek(academicYearId, monday);
     if (days.isEmpty) return days;
 
@@ -125,19 +126,19 @@ class ScheduleRepository {
   }
 
   Future<DateTime?> lastUpdated(DateTime weekStart, int academicYearId) =>
-      _dao.lastUpdated(academicYearId, _monday(weekStart));
+      _dao.lastUpdated(academicYearId, mondayOf(weekStart));
 
   Future<List<DaySchedule>> loadWeekRaw(
     DateTime weekStart,
     int academicYearId,
-  ) => _dao.loadWeek(academicYearId, _monday(weekStart));
+  ) => _dao.loadWeek(academicYearId, mondayOf(weekStart));
 
   Future<Lesson?> loadRawLessonById(
     int yearId,
     DateTime weekStart,
     int lessonId,
   ) async {
-    final days = await _dao.loadWeek(yearId, _monday(weekStart));
+    final days = await _dao.loadWeek(yearId, mondayOf(weekStart));
     for (final d in days) {
       for (final l in d.lessons) {
         if (l.id == lessonId) return l;
@@ -152,14 +153,14 @@ class ScheduleRepository {
   Future<List<ScheduleOverride>> loadWeekOverrides(
     DateTime weekStart,
     int academicYearId,
-  ) => _overridesDao.loadWeek(academicYearId, _monday(weekStart));
+  ) => _overridesDao.loadWeek(academicYearId, mondayOf(weekStart));
 
   Future<Set<String>> loadDaysWithOverrides(
     DateTime weekStart,
     int academicYearId,
   ) async {
     final list = await loadWeekOverrides(weekStart, academicYearId);
-    return list.map((o) => _isoDate(o.date)).toSet();
+    return list.map((o) => isoDate(o.date)).toSet();
   }
 
   Future<List<int>> markDeletedMany({
@@ -316,12 +317,5 @@ class ScheduleRepository {
       _overridesDao.deleteDay(yearId, date);
 
   Future<void> revertWeek(int yearId, DateTime weekStart) =>
-      _overridesDao.deleteWeek(yearId, _monday(weekStart));
-
-  DateTime _monday(DateTime d) => DateTime(d.year, d.month, d.day);
-
-  static String _isoDate(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
+      _overridesDao.deleteWeek(yearId, mondayOf(weekStart));
 }

@@ -62,7 +62,7 @@ class ScheduleService {
     bool groupHomeworksByDue = false,
     required List<Homework> allHomeworks,
   }) async {
-    final monday = DateTime(weekStart.year, weekStart.month, weekStart.day);
+    final monday = dayOnly(weekStart);
     final sunday = monday.add(const Duration(days: 6));
 
     // Мапы для матчинга ДЗ к урокам. Одна и та же логика используется

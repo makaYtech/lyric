@@ -4,13 +4,7 @@ import '../core/util/date_time.dart';
 import 'day_schedule.dart';
 import 'lesson.dart';
 
-enum ScheduleOverrideKind {
-  delete,
-  move,
-  pairBreak,
-  pairMake,
-  reorder,
-}
+enum ScheduleOverrideKind { delete, move, pairBreak, pairMake, reorder }
 
 class ScheduleOverride {
   final int? id;
@@ -37,14 +31,13 @@ class ScheduleOverride {
     required int yearId,
     required DateTime date,
     required int lessonId,
-  }) =>
-      ScheduleOverride(
-        yearId: yearId,
-        date: _dayOnly(date),
-        kind: ScheduleOverrideKind.delete,
-        primaryLessonId: lessonId,
-        createdAt: DateTime.now(),
-      );
+  }) => ScheduleOverride(
+    yearId: yearId,
+    date: dayOnly(date),
+    kind: ScheduleOverrideKind.delete,
+    primaryLessonId: lessonId,
+    createdAt: DateTime.now(),
+  );
 
   factory ScheduleOverride.move({
     required int yearId,
@@ -52,61 +45,55 @@ class ScheduleOverride {
     required int lessonId,
     required String startTime,
     required String endTime,
-  }) =>
-      ScheduleOverride(
-        yearId: yearId,
-        date: _dayOnly(date),
-        kind: ScheduleOverrideKind.move,
-        primaryLessonId: lessonId,
-        payload: jsonEncode({'start_time': startTime, 'end_time': endTime}),
-        createdAt: DateTime.now(),
-      );
+  }) => ScheduleOverride(
+    yearId: yearId,
+    date: dayOnly(date),
+    kind: ScheduleOverrideKind.move,
+    primaryLessonId: lessonId,
+    payload: jsonEncode({'start_time': startTime, 'end_time': endTime}),
+    createdAt: DateTime.now(),
+  );
 
   factory ScheduleOverride.pairBreak({
     required int yearId,
     required DateTime date,
     required int primaryId,
     required int secondaryId,
-  }) =>
-      ScheduleOverride(
-        yearId: yearId,
-        date: _dayOnly(date),
-        kind: ScheduleOverrideKind.pairBreak,
-        primaryLessonId: primaryId,
-        secondaryLessonId: secondaryId,
-        createdAt: DateTime.now(),
-      );
+  }) => ScheduleOverride(
+    yearId: yearId,
+    date: dayOnly(date),
+    kind: ScheduleOverrideKind.pairBreak,
+    primaryLessonId: primaryId,
+    secondaryLessonId: secondaryId,
+    createdAt: DateTime.now(),
+  );
 
   factory ScheduleOverride.pairMake({
     required int yearId,
     required DateTime date,
     required int primaryId,
     required int secondaryId,
-  }) =>
-      ScheduleOverride(
-        yearId: yearId,
-        date: _dayOnly(date),
-        kind: ScheduleOverrideKind.pairMake,
-        primaryLessonId: primaryId,
-        secondaryLessonId: secondaryId,
-        createdAt: DateTime.now(),
-      );
+  }) => ScheduleOverride(
+    yearId: yearId,
+    date: dayOnly(date),
+    kind: ScheduleOverrideKind.pairMake,
+    primaryLessonId: primaryId,
+    secondaryLessonId: secondaryId,
+    createdAt: DateTime.now(),
+  );
 
   factory ScheduleOverride.reorder({
     required int yearId,
     required DateTime date,
     required List<int> order,
-  }) =>
-      ScheduleOverride(
-        yearId: yearId,
-        date: _dayOnly(date),
-        kind: ScheduleOverrideKind.reorder,
-        primaryLessonId: order.isEmpty ? 0 : order.first,
-        payload: jsonEncode({'order': order}),
-        createdAt: DateTime.now(),
-      );
-
-  static DateTime _dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+  }) => ScheduleOverride(
+    yearId: yearId,
+    date: dayOnly(date),
+    kind: ScheduleOverrideKind.reorder,
+    primaryLessonId: order.isEmpty ? 0 : order.first,
+    payload: jsonEncode({'order': order}),
+    createdAt: DateTime.now(),
+  );
 
   Map<String, dynamic> toRow() => {
     if (id != null) 'id': id,
@@ -146,9 +133,9 @@ class ScheduleOverride {
 }
 
 List<DaySchedule> applyScheduleOverrides(
-    List<DaySchedule> days,
-    List<ScheduleOverride> overrides,
-    ) {
+  List<DaySchedule> days,
+  List<ScheduleOverride> overrides,
+) {
   if (overrides.isEmpty) return days;
 
   final byDate = <String, List<ScheduleOverride>>{};
@@ -216,8 +203,9 @@ DaySchedule _applyDay(DaySchedule day, List<ScheduleOverride> ovr) {
     final order = reorder.reorderOrder();
     final sortedByTime = [...lessons]
       ..sort((a, b) => a.startTime.compareTo(b.startTime));
-    final slots =
-    sortedByTime.map((l) => (start: l.startTime, end: l.endTime)).toList();
+    final slots = sortedByTime
+        .map((l) => (start: l.startTime, end: l.endTime))
+        .toList();
 
     final byId = <int, Lesson>{};
     for (final l in lessons) {
@@ -230,10 +218,7 @@ DaySchedule _applyDay(DaySchedule day, List<ScheduleOverride> ovr) {
       final l = byId[order[i]];
       if (l == null) continue;
       placed.add(order[i]);
-      result.add(l.copyWith(
-        startTime: slots[i].start,
-        endTime: slots[i].end,
-      ));
+      result.add(l.copyWith(startTime: slots[i].start, endTime: slots[i].end));
     }
     for (final l in lessons) {
       if (l.id != null && placed.contains(l.id)) continue;
@@ -241,8 +226,7 @@ DaySchedule _applyDay(DaySchedule day, List<ScheduleOverride> ovr) {
     }
     sorted = result;
   } else {
-    sorted = [...lessons]
-      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    sorted = [...lessons]..sort((a, b) => a.startTime.compareTo(b.startTime));
   }
 
   // Пары: forceBreak снимает авто-слияние, forceMake — принудительно
@@ -265,23 +249,25 @@ DaySchedule _applyDay(DaySchedule day, List<ScheduleOverride> ovr) {
   for (final l in sorted) {
     final id = l.id;
     final fb = id == null ? false : forceBreaks.contains(id);
-    marked.add(Lesson(
-      id: l.id,
-      secondaryId: l.secondaryId,
-      startTime: l.startTime,
-      endTime: l.endTime,
-      subject: l.subject,
-      subjectId: l.subjectId,
-      homeworks: l.homeworks,
-      attachments: l.attachments,
-      teacher: l.teacher,
-      teacherId: l.teacherId,
-      room: l.room,
-      isPaired: l.isPaired,
-      breakMinutes: l.breakMinutes,
-      studentHomeworkIds: l.studentHomeworkIds,
-      pairOverride: fb ? LessonPairOverride.breakWithNext : null,
-    ));
+    marked.add(
+      Lesson(
+        id: l.id,
+        secondaryId: l.secondaryId,
+        startTime: l.startTime,
+        endTime: l.endTime,
+        subject: l.subject,
+        subjectId: l.subjectId,
+        homeworks: l.homeworks,
+        attachments: l.attachments,
+        teacher: l.teacher,
+        teacherId: l.teacherId,
+        room: l.room,
+        isPaired: l.isPaired,
+        breakMinutes: l.breakMinutes,
+        studentHomeworkIds: l.studentHomeworkIds,
+        pairOverride: fb ? LessonPairOverride.breakWithNext : null,
+      ),
+    );
   }
 
   return DaySchedule(date: day.date, lessons: marked);

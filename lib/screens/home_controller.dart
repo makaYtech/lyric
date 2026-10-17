@@ -10,6 +10,7 @@ import '../core/cache/cache_service.dart';
 import '../core/settings/homework_prefs.dart';
 import '../core/settings/schedule_prefs.dart';
 import '../core/settings/teacher_prefs.dart';
+import '../core/util/date_time.dart';
 import '../models/academic_year.dart';
 import '../models/attendance.dart';
 import '../models/bells_timetable.dart';
@@ -64,7 +65,7 @@ class HomeController extends ChangeNotifier {
        _attendanceRepository = attendanceRepository ?? AttendanceRepository(),
        _ecHomeworkService = ecHomeworkService ?? EcHomeworkService(),
        _cache = cache ?? CacheService() {
-    _weekStart = _currentMonday();
+    _weekStart = currentMonday();
   }
 
   EposSession _session;
@@ -661,7 +662,7 @@ class HomeController extends ChangeNotifier {
         final monday = _weekStart;
         final sunday = monday.add(const Duration(days: 6));
         final yearId = _selectedYearId;
-        final range = _academicYearRange(DateTime.now());
+        final range = academicYearRange(DateTime.now());
 
         // Параллельно: EC-ДЗ (для ec_group_ids), marks за неделю и
         // годовой список ДЗ. Годовой идёт в БД через репозиторий и
@@ -770,7 +771,7 @@ class HomeController extends ChangeNotifier {
     revision: homeworksTick,
     body: () async {
       final yearId = _selectedYearId;
-      final range = _academicYearRange(DateTime.now());
+      final range = academicYearRange(DateTime.now());
       final homeworks = await _homeworkRepository.refresh(
         tokens,
         yearId,
@@ -787,17 +788,7 @@ class HomeController extends ChangeNotifier {
     silent: silent,
   );
 
-  static (DateTime, DateTime) _academicYearRange(DateTime today) {
-    final year = today.month >= 9 ? today.year : today.year - 1;
-    return (DateTime(year, 9, 1), DateTime(year + 1, 8, 31));
-  }
-
   // ── Правки расписания ─────────────────────────────────────────────────
-
-  static String _isoDate(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
-      '${d.month.toString().padLeft(2, '0')}-'
-      '${d.day.toString().padLeft(2, '0')}';
 
   Set<int> _changedIdsFrom(List<ScheduleOverride> overrides) {
     final out = <int>{};
@@ -830,7 +821,7 @@ class HomeController extends ChangeNotifier {
       _selectedYearId,
     );
     if (_disposed) return;
-    _daysWithOverrides = overrides.map((o) => _isoDate(o.date)).toSet();
+    _daysWithOverrides = overrides.map((o) => isoDate(o.date)).toSet();
     _changedLessonIds = _changedIdsFrom(overrides);
   }
 
@@ -1052,11 +1043,5 @@ class HomeController extends ChangeNotifier {
     await _refreshTeachers();
     if (myToken != _yearToken || _disposed) return;
     await refreshAttendances(silent: true);
-  }
-
-  static DateTime _currentMonday() {
-    final now = DateTime.now();
-    final monday = now.subtract(Duration(days: now.weekday - 1));
-    return DateTime(monday.year, monday.month, monday.day);
   }
 }

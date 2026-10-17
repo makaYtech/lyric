@@ -97,3 +97,33 @@ DateTime? parseEposDate(Object? raw) {
   if (dt == null) return null;
   return DateTime(dt.year, dt.month, dt.day);
 }
+
+// ── Нормализация дат (общие операции, ранее дублировались по коду) ──────
+
+/// Только дата, без времени: DateTime(d.year, d.month, d.day).
+/// Раньше был локальный `_dayOnly` в ScheduleView / ScheduleOverride.
+DateTime dayOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+/// Понедельник недели, содержащей [d] — то же значение, что `weekStart`
+/// в UI. Раньше был локальный `_monday` в ScheduleRepository/Service.
+DateTime mondayOf(DateTime d) {
+  final monday = d.subtract(Duration(days: d.weekday - 1));
+  return DateTime(monday.year, monday.month, monday.day);
+}
+
+/// Понедельник текущей недели.
+/// Раньше был локальный `_currentMonday` в HomeController.
+DateTime currentMonday() => mondayOf(DateTime.now());
+
+/// Один и тот же календарный день (без учёта времени).
+/// Раньше был локальный `_sameDay` в ScheduleView / _DayStrip.
+bool isSameDay(DateTime a, DateTime b) =>
+    a.year == b.year && a.month == b.month && a.day == b.day;
+
+/// Учебный год, которому принадлежит дата: сентябрь..август.
+/// Возвращает (1 сентября начала, 31 августа конца).
+/// Раньше был локальный `_academicYearRange` в HomeController.
+(DateTime, DateTime) academicYearRange(DateTime today) {
+  final year = today.month >= 9 ? today.year : today.year - 1;
+  return (DateTime(year, 9, 1), DateTime(year + 1, 8, 31));
+}
