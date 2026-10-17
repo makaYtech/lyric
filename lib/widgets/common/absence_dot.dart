@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/attendance.dart';
+import '../shell/adaptive_sheet.dart';
 
 /// Кружок с «Н» — отсутствие на уроке. Визуально повторяет GradeDot,
 /// но это не оценка: цвет — только про уважительность причины.
@@ -62,11 +63,9 @@ Future<void> showAbsenceDetails(
   final theme = Theme.of(context);
   final color = AbsenceDot.colorFor(excused: attendance.isExcused);
 
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (_) => SafeArea(
+  return showAdaptiveSheet<void>(
+    context,
+    builder: (_, _) => SafeArea(
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),

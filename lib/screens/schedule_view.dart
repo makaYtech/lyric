@@ -19,6 +19,7 @@ import '../widgets/homework/homework_group_switcher.dart';
 import '../widgets/schedule/day_schedule_card.dart';
 import '../widgets/schedule/overrides_sheet.dart';
 import '../widgets/schedule/selection_toolbar.dart';
+import '../widgets/shell/adaptive_sheet.dart';
 
 class ScheduleView extends StatefulWidget {
   final List<DaySchedule>? schedule;
@@ -930,29 +931,24 @@ class _ScheduleViewState extends State<ScheduleView>
     final rawDays = await loadRaw();
     if (!mounted) return;
 
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
+    await showAdaptiveSheet<void>(
+      context,
+      draggable: true,
       useSafeArea: true,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.6,
-        minChildSize: 0.3,
-        maxChildSize: 0.95,
-        snap: true,
-        snapSizes: const [0.6, 0.95],
-        expand: false,
-        builder: (context, scrollController) => ScheduleOverridesSheet(
-          overrides: overrides,
-          rawDays: rawDays,
-          onRevertOverride: revertOne ?? (_) async {},
-          onRevertWeek: revertWeek ?? () async {},
-          onReload: () async {
-            final o = await loadOverrides();
-            final r = await loadRaw();
-            return (overrides: o, rawDays: r);
-          },
-        ),
+      initialSize: 0.6,
+      minSize: 0.3,
+      maxSize: 0.95,
+      snapSizes: const [0.6, 0.95],
+      builder: (context, _) => ScheduleOverridesSheet(
+        overrides: overrides,
+        rawDays: rawDays,
+        onRevertOverride: revertOne ?? (_) async {},
+        onRevertWeek: revertWeek ?? () async {},
+        onReload: () async {
+          final o = await loadOverrides();
+          final r = await loadRaw();
+          return (overrides: o, rawDays: r);
+        },
       ),
     );
   }

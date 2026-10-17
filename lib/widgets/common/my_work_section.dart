@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../models/homework_attachment.dart';
 import '../../services/attachment_service.dart';
 import '../../services/homework_attachments_service.dart';
+import '../shell/adaptive_sheet.dart';
 
 /// Блок «Моя работа» — файлы, которые ученик сдаёт по этому ДЗ.
 /// Самодостаточен: сам тянет актуальный список с сервера, сам
@@ -237,12 +238,11 @@ Future<void> showMyWorkSheet(
   String? subject,
   List<HomeworkAttachment> initial = const [],
 }) {
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
+  return showAdaptiveSheet<void>(
+    context,
     useSafeArea: true,
-    builder: (ctx) => SafeArea(
+    selfScrolling: true,
+    builder: (ctx, _) => SafeArea(
       top: false,
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),

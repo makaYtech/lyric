@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core/auth/auth_config.dart';
 import '../core/auth/auth_coordinator.dart';
 import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
+import '../core/layout/adaptive.dart';
+import '../core/settings/layout_prefs.dart';
 import '../core/settings/avatar_storage.dart';
 import '../core/theme/theme_controller.dart';
 import '../widgets/auth/reauth_sheet.dart';
+import '../widgets/shell/app_side_bar.dart';
 import 'device_reauth_screen.dart';
 import 'grades_view.dart';
 import 'home_controller.dart';
@@ -19,6 +23,7 @@ import '../services/attachment_service.dart';
 import '../core/settings/update_prefs.dart';
 import '../services/update/update_service.dart';
 import '../widgets/update/update_sheet.dart';
+import '../widgets/shell/adaptive_sheet.dart';
 
 class HomeScreen extends StatefulWidget {
   final EposSession session;
@@ -105,13 +110,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_reauthModalOpen) return;
     _reauthModalOpen = true;
     try {
-      final confirmed = await showModalBottomSheet<bool>(
-        context: context,
-        isScrollControlled: true,
-        showDragHandle: true,
-        isDismissible: false,
-        enableDrag: false,
-        builder: (_) => const ReauthSheet(),
+      final confirmed = await showAdaptiveSheet<bool>(
+        context,
+        dismissible: false,
+        builder: (_, _) => const ReauthSheet(),
       );
       if (confirmed == true) {
         await _runReauth();
@@ -151,7 +153,13 @@ class _HomeScreenState extends State<HomeScreen> {
         content: Text(message),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(milliseconds: 2500),
-        margin: const EdgeInsets.fromLTRB(16, 0, 16, 96),
+        // Широкий экран: нижнего бара нет, снэкбар — компактный, а не на всю ширину.
+        width: AdaptiveLayout.useSideBar(MediaQuery.sizeOf(context).width)
+            ? 420
+            : null,
+        margin: AdaptiveLayout.useSideBar(MediaQuery.sizeOf(context).width)
+            ? null
+            : const EdgeInsets.fromLTRB(16, 0, 16, 96),
         backgroundColor: errorStyle
             ? Theme.of(context).colorScheme.errorContainer
             : null,
@@ -165,6 +173,15 @@ class _HomeScreenState extends State<HomeScreen> {
   /// перебивали финальный выбор.
   void _onTabSelected(int i) {
     if (i == _controller.tabIndex) return;
+
+    // Широкий экран: страницы не «листаются», просто переключаемся.
+    if (AdaptiveLayout.useSideBar(MediaQuery.sizeOf(context).width)) {
+      _animationId++;
+      _animatingToTab = false;
+      _pageController.jumpToPage(i);
+      _controller.setTabIndex(i);
+      return;
+    }
 
     final myId = ++_animationId;
     _animatingToTab = true;
@@ -207,132 +224,260 @@ class _HomeScreenState extends State<HomeScreen> {
       _controller,
     ]);
 
-    return Stack(
-      children: [
-        Scaffold(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = AdaptiveLayout.useSideBar(constraints.maxWidth);
+
+        final scaffold = Scaffold(
           appBar: _HomeAppBar(
             controller: _controller,
             onOpenSettings: _openSettings,
+            // На широком экране настройки уходят в боковую панель.
+            showSettings: !wide,
           ),
-          body: PageView(
-            controller: _pageController,
-            onPageChanged: (i) {
-              // Свайп пользователя: обновляем таб сразу. Тап-инициированные
-              // переключения сюда не доходят — там _animatingToTab == true.
-              if (_animatingToTab) return;
-              _controller.setTabIndex(i);
-            },
-            children: [
-              ListenableBuilder(
-                listenable: _controller.profileTick,
-                builder: (context, _) => ProfileView(
-                  profile: _controller.profile,
-                  teachers: _controller.teachers,
-                  studentTeacherIds: _controller.studentTeacherIds,
-                  studentAvatarKey: AvatarStorage.studentKey(
-                    _controller.tokens.profileId,
-                  ),
-                  isLoading: _controller.profileLoading,
-                  error: _controller.profileErrorForView,
-                  onRefresh: () => _guardedRefresh(_controller.refreshProfile),
+          body: _buildPages(wide),
+          bottomNavigationBar: wide ? null : _buildBottomBar(),
+        );
+
+        return CallbackShortcuts(
+          bindings: _globalBindings,
+          child: Focus(
+            autofocus: true,
+            child: Stack(
+              children: [
+                wide ? _wrapWithSideBar(scaffold) : scaffold,
+                ListenableBuilder(
+                  listenable: needsHiddenWebView,
+                  builder: (context, _) {
+                    // На desktop webview_flutter не реализован — не монтируем.
+                    if (!AdaptiveLayout.webViewSupported) {
+                      return const SizedBox.shrink();
+                    }
+                    final useDevice = AuthConfig.useDeviceTokenFlow.value;
+                    final session = _controller.session;
+                    final needsWebView =
+                        !useDevice || session.deviceToken == null;
+                    if (!needsWebView) return const SizedBox.shrink();
+                    return const AuthWebViewHost();
+                  },
                 ),
-              ),
-              ListenableBuilder(
-                listenable: _controller.gradesTick,
-                builder: (context, _) => GradesView(
-                  grades: _controller.grades,
-                  isLoading: _controller.gradesLoading,
-                  error: _controller.gradesErrorForView,
-                  onRefresh: () => _guardedRefresh(_controller.refreshGrades),
-                ),
-              ),
-              ListenableBuilder(
-                listenable: _controller.scheduleTick,
-                builder: (context, _) => ScheduleView(
-                  schedule: _controller.schedule,
-                  marks: _controller.marks,
-                  grades: _controller.grades,
-                  attendances: _controller.attendances,
-                  bells: _controller.bells,
-                  isActive: _controller.tabIndex == 2,
-                  autoScrollAlreadyDone: _controller.scheduleAutoScrolledOnce,
-                  onAutoScrollDone: _controller.markScheduleAutoScrolled,
-                  isLoading: _controller.scheduleLoading,
-                  error: _controller.scheduleErrorForView,
-                  weekStart: _controller.weekStart,
-                  onWeekChanged: _controller.changeWeek,
-                  onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
-                  onDeleteLessons: (date, ids) => _controller
-                      .deleteScheduleLessons(date: date, lessonIds: ids),
-                  onMoveLessons: (date, moves) =>
-                      _controller.moveScheduleLessons(date: date, moves: moves),
-                  onRevertOverrideIds: (ids) =>
-                      _controller.revertScheduleOverrides(ids),
-                  onRevertOverride: (id) =>
-                      _controller.revertScheduleOverride(id),
-                  onRevertWeek: () => _controller.revertWeekOverrides(),
-                  onLoadWeekOverrides: () => _controller.loadWeekOverrides(),
-                  onLoadWeekRawLessons: () => _controller.loadWeekRawLessons(),
-                  daysWithOverrides: _controller.daysWithOverrides,
-                  changedLessonIds: _controller.changedLessonIds,
-                  onBreakPair: (date, primaryId, secondaryId) =>
-                      _controller.breakSchedulePair(
-                        date: date,
-                        primaryId: primaryId,
-                        secondaryId: secondaryId,
-                      ),
-                  onMakePair: (date, primaryId, secondaryId) =>
-                      _controller.makeSchedulePair(
-                        date: date,
-                        primaryId: primaryId,
-                        secondaryId: secondaryId,
-                      ),
-                  onReorderLessons: (date, orig, next) =>
-                      _controller.reorderScheduleDay(
-                        date: date,
-                        originalOrder: orig,
-                        newOrder: next,
-                      ),
-                ),
-              ),
-              ListenableBuilder(
-                listenable: _controller.homeworksTick,
-                builder: (context, _) => HomeworkView(
-                  homeworks: _controller.homeworks,
-                  isLoading: _controller.homeworksLoading,
-                  error: _controller.homeworksErrorForView,
-                  isActive: _controller.tabIndex == 3,
-                  onRefresh: () =>
-                      _guardedRefresh(_controller.refreshHomeworks),
-                ),
-              ),
-            ],
-          ),
-          bottomNavigationBar: ListenableBuilder(
-            listenable: Listenable.merge([_controller, _session]),
-            builder: (context, _) => _BottomBar(
-              controller: _controller,
-              needsAuth: _session.needsAuth,
-              onTabSelected: _onTabSelected,
-              onRefreshTap: () {
-                if (_session.needsAuth) {
-                  _showReauthSheet();
-                } else {
-                  _controller.refreshAll();
-                }
-              },
+              ],
             ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Горячие клавиши уровня всего приложения. Вкладки (ДЗ и т.д.) добавляют
+  /// свои, например ←/→ для переключения дня.
+  Map<ShortcutActivator, VoidCallback> get _globalBindings => {
+    const SingleActivator(LogicalKeyboardKey.f5): _onRefreshTap,
+    const SingleActivator(LogicalKeyboardKey.keyR, control: true):
+        _onRefreshTap,
+    const SingleActivator(LogicalKeyboardKey.digit1, control: true): () =>
+        _onTabSelected(0),
+    const SingleActivator(LogicalKeyboardKey.digit2, control: true): () =>
+        _onTabSelected(1),
+    const SingleActivator(LogicalKeyboardKey.digit3, control: true): () =>
+        _onTabSelected(2),
+    const SingleActivator(LogicalKeyboardKey.digit4, control: true): () =>
+        _onTabSelected(3),
+    const SingleActivator(LogicalKeyboardKey.comma, control: true):
+        _openSettings,
+  };
+
+  void _onRefreshTap() {
+    if (_session.needsAuth) {
+      _showReauthSheet();
+    } else {
+      _controller.refreshAll();
+    }
+  }
+
+  Widget _buildBottomBar() {
+    return ListenableBuilder(
+      listenable: Listenable.merge([_controller, _session]),
+      builder: (context, _) => _BottomBar(
+        controller: _controller,
+        needsAuth: _session.needsAuth,
+        onTabSelected: _onTabSelected,
+        onRefreshTap: _onRefreshTap,
+      ),
+    );
+  }
+
+  static const _sideBarItems = [
+    SideBarItem(
+      icon: Icons.person_outline,
+      selectedIcon: Icons.person,
+      label: 'Профиль',
+    ),
+    SideBarItem(
+      icon: Icons.grade_outlined,
+      selectedIcon: Icons.grade,
+      label: 'Оценки',
+    ),
+    SideBarItem(
+      icon: Icons.calendar_today_outlined,
+      selectedIcon: Icons.calendar_today,
+      label: 'Расписание',
+    ),
+    SideBarItem(
+      icon: Icons.book_outlined,
+      selectedIcon: Icons.book,
+      label: 'ДЗ',
+    ),
+  ];
+
+  /// Боковая панель + контент. Сторона и «раскрытость» — из LayoutPrefs.
+  Widget _wrapWithSideBar(Widget content) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        LayoutPrefs.sideBarOnRight,
+        LayoutPrefs.sideBarExpanded,
+        _controller,
+        _session,
+      ]),
+      builder: (context, _) {
+        final onRight = LayoutPrefs.sideBarOnRight.value;
+        final expanded = LayoutPrefs.sideBarExpanded.value;
+        final profile = _controller.profile;
+
+        final bar = AppSideBar(
+          items: _sideBarItems,
+          selectedIndex: _controller.tabIndex,
+          onSelected: _onTabSelected,
+          expanded: expanded,
+          onToggleExpanded: AdaptiveLayout.canToggleSideBar
+              ? () => LayoutPrefs.setSideBarExpanded(!expanded)
+              : null,
+          onRight: onRight,
+          needsAuth: _session.needsAuth,
+          isLoading: _controller.anyLoading,
+          onRefresh: _onRefreshTap,
+          onOpenSettings: _openSettings,
+          userName: profile?.userName ?? 'Профиль',
+          userSubtitle: profile?.className,
+          userAvatarKey: AvatarStorage.studentKey(_controller.tokens.profileId),
+          userActions: [
+            SideBarUserAction(
+              icon: Icons.person_outline,
+              label: 'Профиль',
+              onTap: () => _onTabSelected(0),
+            ),
+            if (_session.needsAuth)
+              SideBarUserAction(
+                icon: Icons.login,
+                label: 'Войти заново',
+                onTap: _showReauthSheet,
+              ),
+            // Для родителя сюда встанет переключатель детей.
+          ],
+        );
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: onRight
+              ? [Expanded(child: content), bar]
+              : [bar, Expanded(child: content)],
+        );
+      },
+    );
+  }
+
+  Widget _buildPages(bool wide) {
+    return PageView(
+      controller: _pageController,
+      // Мышь/тачпад не должны листать вкладки горизонтальным скроллом.
+      physics: wide ? const NeverScrollableScrollPhysics() : null,
+      onPageChanged: (i) {
+        // Свайп пользователя: обновляем таб сразу. Тап-инициированные
+        // переключения сюда не доходят — там _animatingToTab == true.
+        if (_animatingToTab) return;
+        _controller.setTabIndex(i);
+      },
+      children: [
+        ListenableBuilder(
+          listenable: _controller.profileTick,
+          builder: (context, _) => ProfileView(
+            profile: _controller.profile,
+            teachers: _controller.teachers,
+            studentTeacherIds: _controller.studentTeacherIds,
+            studentAvatarKey: AvatarStorage.studentKey(
+              _controller.tokens.profileId,
+            ),
+            isLoading: _controller.profileLoading,
+            error: _controller.profileErrorForView,
+            onRefresh: () => _guardedRefresh(_controller.refreshProfile),
           ),
         ),
         ListenableBuilder(
-          listenable: needsHiddenWebView,
-          builder: (context, _) {
-            final useDevice = AuthConfig.useDeviceTokenFlow.value;
-            final session = _controller.session;
-            final needsWebView = !useDevice || session.deviceToken == null;
-            if (!needsWebView) return const SizedBox.shrink();
-            return const AuthWebViewHost();
-          },
+          listenable: _controller.gradesTick,
+          builder: (context, _) => GradesView(
+            grades: _controller.grades,
+            isLoading: _controller.gradesLoading,
+            error: _controller.gradesErrorForView,
+            onRefresh: () => _guardedRefresh(_controller.refreshGrades),
+          ),
+        ),
+        ListenableBuilder(
+          listenable: _controller.scheduleTick,
+          builder: (context, _) => ScheduleView(
+            schedule: _controller.schedule,
+            marks: _controller.marks,
+            grades: _controller.grades,
+            attendances: _controller.attendances,
+            bells: _controller.bells,
+            isActive: _controller.tabIndex == 2,
+            autoScrollAlreadyDone: _controller.scheduleAutoScrolledOnce,
+            onAutoScrollDone: _controller.markScheduleAutoScrolled,
+            isLoading: _controller.scheduleLoading,
+            error: _controller.scheduleErrorForView,
+            weekStart: _controller.weekStart,
+            onWeekChanged: _controller.changeWeek,
+            onRefresh: () => _guardedRefresh(_controller.refreshSchedule),
+            onDeleteLessons: (date, ids) =>
+                _controller.deleteScheduleLessons(date: date, lessonIds: ids),
+            onMoveLessons: (date, moves) =>
+                _controller.moveScheduleLessons(date: date, moves: moves),
+            onRevertOverrideIds: (ids) =>
+                _controller.revertScheduleOverrides(ids),
+            onRevertOverride: (id) => _controller.revertScheduleOverride(id),
+            onRevertWeek: () => _controller.revertWeekOverrides(),
+            onLoadWeekOverrides: () => _controller.loadWeekOverrides(),
+            onLoadWeekRawLessons: () => _controller.loadWeekRawLessons(),
+            daysWithOverrides: _controller.daysWithOverrides,
+            changedLessonIds: _controller.changedLessonIds,
+            onBreakPair: (date, primaryId, secondaryId) =>
+                _controller.breakSchedulePair(
+                  date: date,
+                  primaryId: primaryId,
+                  secondaryId: secondaryId,
+                ),
+            onMakePair: (date, primaryId, secondaryId) =>
+                _controller.makeSchedulePair(
+                  date: date,
+                  primaryId: primaryId,
+                  secondaryId: secondaryId,
+                ),
+            onReorderLessons: (date, orig, next) =>
+                _controller.reorderScheduleDay(
+                  date: date,
+                  originalOrder: orig,
+                  newOrder: next,
+                ),
+          ),
+        ),
+        ListenableBuilder(
+          listenable: _controller.homeworksTick,
+          builder: (context, _) => HomeworkView(
+            homeworks: _controller.homeworks,
+            isLoading: _controller.homeworksLoading,
+            error: _controller.homeworksErrorForView,
+            isActive: _controller.tabIndex == 3,
+            onRefresh: () => _guardedRefresh(_controller.refreshHomeworks),
+          ),
         ),
       ],
     );
@@ -342,8 +487,13 @@ class _HomeScreenState extends State<HomeScreen> {
 class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
   final HomeController controller;
   final VoidCallback onOpenSettings;
+  final bool showSettings;
 
-  const _HomeAppBar({required this.controller, required this.onOpenSettings});
+  const _HomeAppBar({
+    required this.controller,
+    required this.onOpenSettings,
+    this.showSettings = true,
+  });
 
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
@@ -364,11 +514,12 @@ class _HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
           if ((controller.tabIndex == 1 || controller.tabIndex == 3) &&
               (controller.years?.isNotEmpty ?? false))
             _YearMenu(controller: controller),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Настройки',
-            onPressed: onOpenSettings,
-          ),
+          if (showSettings)
+            IconButton(
+              icon: const Icon(Icons.settings_outlined),
+              tooltip: 'Настройки',
+              onPressed: onOpenSettings,
+            ),
         ],
       ),
     );

@@ -41,8 +41,25 @@ class AppDatabase {
     }
   }
 
+  /// Где лежит файл БД.
+  ///
+  /// Android/iOS — «Документы» приложения, как и раньше (там уже есть БД
+  /// у существующих пользователей, путь менять нельзя).
+  /// Desktop — каталог данных приложения (~/.local/share/<app> на Linux):
+  /// это не засоряет пользовательские «Документы», и на Linux не нужна
+  /// утилита xdg-user-dir, без которой getApplicationDocumentsDirectory()
+  /// бросает MissingPlatformDirectoryException.
+  Future<Directory> _databaseDirectory() async {
+    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+      final dir = await getApplicationSupportDirectory();
+      if (!await dir.exists()) await dir.create(recursive: true);
+      return dir;
+    }
+    return getApplicationDocumentsDirectory();
+  }
+
   Future<Database> _open() async {
-    final dir = await getApplicationDocumentsDirectory();
+    final dir = await _databaseDirectory();
     final path = p.join(dir.path, _fileName);
     try {
       return await _openAt(path);

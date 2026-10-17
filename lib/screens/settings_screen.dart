@@ -5,6 +5,8 @@ import '../core/auth/session_notifier.dart';
 import '../core/auth/session_refresh_service.dart';
 import '../core/cache/cache_service.dart';
 import '../core/db/app_database.dart';
+import '../core/layout/adaptive.dart';
+import '../core/settings/layout_prefs.dart';
 import '../core/settings/avatar_storage.dart';
 import '../core/settings/schedule_prefs.dart';
 import '../core/settings/teacher_prefs.dart';
@@ -465,6 +467,38 @@ class SettingsScreen extends StatelessWidget {
                 ),
               ],
             ),
+            // 1.5 Боковая панель (только desktop)
+            if (AdaptiveLayout.isDesktopOS) ...[
+              _SectionHeader(
+                icon: Icons.view_sidebar_outlined,
+                title: 'Боковая панель',
+              ),
+              _SettingsCard(
+                children: [
+                  ValueListenableBuilder<bool>(
+                    valueListenable: LayoutPrefs.sideBarOnRight,
+                    builder: (_, right, _) => SwitchListTile(
+                      title: const Text('Панель справа'),
+                      subtitle: const Text('По умолчанию — слева'),
+                      value: right,
+                      onChanged: LayoutPrefs.setSideBarOnRight,
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: LayoutPrefs.sideBarExpanded,
+                    builder: (_, expanded, _) => SwitchListTile(
+                      title: const Text('Показывать названия'),
+                      subtitle: const Text(
+                        'То же, что кнопка раскрытия вверху панели',
+                      ),
+                      value: expanded,
+                      onChanged: LayoutPrefs.setSideBarExpanded,
+                    ),
+                  ),
+                ],
+              ),
+            ],
             // 2. Расписание
             _SectionHeader(
               icon: Icons.calendar_today_outlined,

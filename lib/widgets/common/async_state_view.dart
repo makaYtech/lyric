@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/layout/adaptive.dart';
+
 /// Унифицированное отображение состояния "данных ещё нет / ошибка / контент".
 /// Используется на всех экранах вместо самодельных if/else в build() —
 /// так все экраны выглядят и ведут себя одинаково в этих трёх состояниях.
@@ -38,8 +40,12 @@ class AsyncStateView extends StatelessWidget {
       if (isLoading) {
         return const Center(child: CircularProgressIndicator());
       }
-      return const _FillScrollable(
-        child: Text('Нет данных. Потяни вниз, чтобы обновить.'),
+      return _FillScrollable(
+        child: Text(
+          AdaptiveLayout.isDesktopOS
+              ? 'Нет данных. Нажмите F5, чтобы обновить.'
+              : 'Нет данных. Потяни вниз, чтобы обновить.',
+        ),
       );
     }
 
@@ -63,10 +69,7 @@ class _FillScrollable extends StatelessWidget {
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: constraints.maxHeight),
             child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: child,
-              ),
+              child: Padding(padding: const EdgeInsets.all(16), child: child),
             ),
           ),
         );

@@ -48,6 +48,7 @@ dependencies:
   package_info_plus: ^8.0.2
   dio: ^5.7.0
   url_launcher: ^6.3.1
+  desktop_webview_window: ^0.3.2
 
 dev_dependencies:
   flutter_test:

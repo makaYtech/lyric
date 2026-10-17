@@ -4,6 +4,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../core/auth/device_token_auth.dart';
 import '../core/auth/epos_session.dart';
 import '../core/auth/session_refresh_service.dart';
+import '../core/layout/adaptive.dart';
+import '../widgets/auth/desktop_login_panel.dart';
 
 /// Тот же новый flow, что и DeviceLoginScreen, но для случая
 /// "перелогин из HomeScreen": возвращает EposSession через pop.
@@ -27,6 +29,12 @@ class _DeviceReauthScreenState extends State<DeviceReauthScreen> {
   }
 
   Future<void> _init() async {
+    // На desktop вход идёт в отдельном окне (DesktopLoginPanel),
+    // WebViewController тут создавать нельзя — он упадёт assert'ом.
+    if (!AdaptiveLayout.webViewSupported) {
+      _status = 'Открываю окно входа...';
+      return;
+    }
     try {
       final c = await DeviceTokenAuthService.instance.createLoginController(
         onStatus: (s) {
@@ -80,25 +88,34 @@ class _DeviceReauthScreenState extends State<DeviceReauthScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Вход в ЭПОС')),
-      body: Column(
-        children: [
-          Expanded(
-            child: _controller == null
-                ? const Center(child: CircularProgressIndicator())
-                : WebViewWidget(controller: _controller!),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8),
-            child: Text(
-              _status,
-              style: const TextStyle(fontSize: 12),
-              textAlign: TextAlign.center,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+      body: !AdaptiveLayout.webViewSupported
+          ? DesktopLoginPanel(
+              onTokenFound: _onTokenFound,
+              onStatus: (s) {
+                if (mounted && !_done) setState(() => _status = s);
+              },
+              status: _status,
+              busy: _busy,
+            )
+          : Column(
+              children: [
+                Expanded(
+                  child: _controller == null
+                      ? const Center(child: CircularProgressIndicator())
+                      : WebViewWidget(controller: _controller!),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Text(
+                    _status,
+                    style: const TextStyle(fontSize: 12),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }

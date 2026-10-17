@@ -4,6 +4,7 @@ import '../../models/homework.dart';
 import '../common/attachment_button.dart';
 import '../common/my_work_section.dart';
 import 'homework_details_sheet.dart';
+import '../shell/adaptive_sheet.dart';
 
 class HomeworkCard extends StatelessWidget {
   final Homework homework;
@@ -11,22 +12,17 @@ class HomeworkCard extends StatelessWidget {
   const HomeworkCard({super.key, required this.homework});
 
   Future<void> _openDetails(BuildContext context) {
-    return showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
+    return showAdaptiveSheet<void>(
+      context,
+      draggable: true,
       useSafeArea: true,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.5,
-        minChildSize: 0.3,
-        maxChildSize: 1.0,
-        snap: true,
-        snapSizes: const [0.5, 1.0],
-        expand: false,
-        builder: (context, scrollController) => HomeworkDetailsSheet(
-          homework: homework,
-          scrollController: scrollController,
-        ),
+      initialSize: 0.5,
+      minSize: 0.3,
+      maxSize: 1.0,
+      snapSizes: const [0.5, 1.0],
+      builder: (context, scrollController) => HomeworkDetailsSheet(
+        homework: homework,
+        scrollController: scrollController!,
       ),
     );
   }
@@ -61,8 +57,9 @@ class HomeworkCard extends StatelessWidget {
                         subject,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w600),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
@@ -84,8 +81,7 @@ class HomeworkCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              if (homework.assignedAt != null ||
-                  homework.dueDate != null) ...[
+              if (homework.assignedAt != null || homework.dueDate != null) ...[
                 const SizedBox(height: 8),
                 Row(
                   children: [
@@ -131,11 +127,11 @@ class _MyWorkButton extends StatelessWidget {
       onPressed: homework.id == 0
           ? null
           : () => showMyWorkSheet(
-        context,
-        studentHomeworkId: homework.id,
-        subject: homework.subjectName,
-        initial: homework.myAttachments,
-      ),
+              context,
+              studentHomeworkId: homework.id,
+              subject: homework.subjectName,
+              initial: homework.myAttachments,
+            ),
       tooltip: 'Моя работа',
       icon: Badge(
         isLabelVisible: count > 1,

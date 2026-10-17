@@ -97,6 +97,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "3.0.7"
+  desktop_webview_window:
+    dependency: "direct main"
+    description:
+      name: desktop_webview_window
+      sha256: "20c3ac0f0404f72a0ce76f6f729f4dc656c04747f42e0a38d9553855b1d6012e"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.3.2"
   dio:
     dependency: "direct main"
     description:

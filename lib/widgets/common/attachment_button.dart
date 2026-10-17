@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/homework_attachment.dart';
 import '../../services/attachment_service.dart';
+import '../shell/adaptive_sheet.dart';
 
 /// Кнопка «файл ДЗ». Одна на оба места:
 ///  - dense (в карточке ДЗ)  — круглая IconButton с иконкой download;
@@ -35,8 +36,7 @@ class _AttachmentButtonState extends State<AttachmentButton> {
     final list = widget.attachments;
     if (list.isEmpty) return;
 
-    final target =
-    list.length == 1 ? list.first : await _pick(context, list);
+    final target = list.length == 1 ? list.first : await _pick(context, list);
     if (target == null || !mounted) return;
 
     setState(() {
@@ -66,14 +66,13 @@ class _AttachmentButtonState extends State<AttachmentButton> {
   }
 
   Future<HomeworkAttachment?> _pick(
-      BuildContext context,
-      List<HomeworkAttachment> list,
-      ) {
+    BuildContext context,
+    List<HomeworkAttachment> list,
+  ) {
     final theme = Theme.of(context);
-    return showModalBottomSheet<HomeworkAttachment>(
-      context: context,
-      showDragHandle: true,
-      builder: (_) => SafeArea(
+    return showAdaptiveSheet<HomeworkAttachment>(
+      context,
+      builder: (_, _) => SafeArea(
         top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -124,10 +123,10 @@ class _AttachmentButtonState extends State<AttachmentButton> {
         icon: _busy
             ? spinner
             : Badge(
-          isLabelVisible: count > 1,
-          label: Text('$count'),
-          child: const Icon(Icons.download_rounded, size: 22),
-        ),
+                isLabelVisible: count > 1,
+                label: Text('$count'),
+                child: const Icon(Icons.download_rounded, size: 22),
+              ),
         style: IconButton.styleFrom(
           minimumSize: const Size(44, 44),
           backgroundColor: theme.colorScheme.secondaryContainer,
@@ -136,14 +135,12 @@ class _AttachmentButtonState extends State<AttachmentButton> {
       );
     }
 
-    final labelText = widget.label ??
-        (count == 1 ? 'Скачать файл' : 'Файлы ($count)');
+    final labelText =
+        widget.label ?? (count == 1 ? 'Скачать файл' : 'Файлы ($count)');
 
     return OutlinedButton.icon(
       onPressed: _busy ? null : _onTap,
-      icon: _busy
-          ? spinner
-          : const Icon(Icons.download_rounded, size: 18),
+      icon: _busy ? spinner : const Icon(Icons.download_rounded, size: 18),
       label: Text(labelText, overflow: TextOverflow.ellipsis),
     );
   }

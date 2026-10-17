@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../shell/adaptive_sheet.dart';
+
 class GradeDot extends StatelessWidget {
   final int value;
   final double size;
@@ -119,11 +121,9 @@ Future<void> showGradeDetails(
     if (hasWorkType) workType.trim(),
   ];
 
-  return showModalBottomSheet<void>(
-    context: context,
-    showDragHandle: true,
-    isScrollControlled: true,
-    builder: (_) => SafeArea(
+  return showAdaptiveSheet<void>(
+    context,
+    builder: (_, _) => SafeArea(
       top: false,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),

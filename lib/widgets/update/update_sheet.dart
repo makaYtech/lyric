@@ -2,18 +2,16 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/update/update_service.dart';
+import '../shell/adaptive_sheet.dart';
 
 /// Показывает шторку обновления. Возвращает true, если интент установщика
 /// ушёл успешно (не факт, что пользователь подтвердил установку — система
 /// сама решит); false — если отменил или что-то не получилось.
 Future<bool> showUpdateSheet(BuildContext context, UpdateInfo info) async {
-  final result = await showModalBottomSheet<bool>(
-    context: context,
-    isScrollControlled: true,
-    isDismissible: true,
-    showDragHandle: true,
+  final result = await showAdaptiveSheet<bool>(
+    context,
     useSafeArea: true,
-    builder: (_) => UpdateSheet(info: info),
+    builder: (_, _) => UpdateSheet(info: info),
   );
   return result == true;
 }
@@ -253,9 +251,7 @@ class _UpdateSheetState extends State<UpdateSheet> {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
           const SizedBox(width: 12),
-          Expanded(
-            child: Text(message, style: theme.textTheme.titleMedium),
-          ),
+          Expanded(child: Text(message, style: theme.textTheme.titleMedium)),
         ],
       ),
       const SizedBox(height: 16),

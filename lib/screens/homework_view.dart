@@ -1,6 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../core/layout/adaptive.dart';
 import '../core/settings/homework_prefs.dart';
 import '../core/util/labels.dart';
 import '../models/homework.dart';
@@ -38,6 +42,15 @@ class _HomeworkViewState extends State<HomeworkView>
   List<DateTime> _dates = const [];
   int _selectedIndex = 0;
 
+  // ── Широкий режим: колонки по дням ────────────────────────────────────
+  // Колонки есть только у дней, где реально есть ДЗ (в полосе дат — все дни).
+  final _columnsScroll = ItemScrollController();
+  final _focus = FocusNode(debugLabel: 'homework');
+  List<DateTime> _colDates = const [];
+  int _colsPerView = 1;
+  Map<DateTime, List<Homework>>? _byDateCache;
+  List<Homework>? _byDateCacheForList;
+
   // Кэш отфильтрованного списка под выбранную дату. Раньше фильтрация
   // (проход по всем ДЗ года) шла на каждый build — теперь только при
   // смене даты / списка / режима группировки.
@@ -67,12 +80,17 @@ class _HomeworkViewState extends State<HomeworkView>
 
     if (!oldWidget.isActive && widget.isActive) {
       _scheduleScrollToSelected(delay: const Duration(milliseconds: 350));
+      // Чтобы стрелки ←/→ работали сразу после переключения на вкладку.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
     }
   }
 
   @override
   void dispose() {
     HomeworkPrefs.groupByDue.removeListener(_onPrefChanged);
+    _focus.dispose();
     super.dispose();
   }
 
@@ -88,6 +106,8 @@ class _HomeworkViewState extends State<HomeworkView>
     _itemsCache = null;
     _itemsCacheForDate = null;
     _itemsCacheForList = null;
+    _byDateCache = null;
+    _byDateCacheForList = null;
   }
 
   static bool _hasContent(Homework h) {
@@ -112,6 +132,7 @@ class _HomeworkViewState extends State<HomeworkView>
 
     if (homeworks == null || homeworks.isEmpty) {
       _dates = const [];
+      _colDates = const [];
       _selectedIndex = 0;
       return;
     }
@@ -126,11 +147,13 @@ class _HomeworkViewState extends State<HomeworkView>
     }
     if (datesWithHw.isEmpty) {
       _dates = const [];
+      _colDates = const [];
       _selectedIndex = 0;
       return;
     }
 
     final sorted = datesWithHw.toList()..sort();
+    _colDates = sorted;
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -174,15 +197,74 @@ class _HomeworkViewState extends State<HomeworkView>
   Future<void> _scrollToSelected() async {
     if (!mounted) return;
     if (_selectedIndex < 0 || _selectedIndex >= _dates.length) return;
-    if (!_itemScrollController.isAttached) return;
 
-    final target = _selectedIndex * 2;
-    _itemScrollController.scrollTo(
-      index: target,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-      alignment: 0.5,
-    );
+    if (_itemScrollController.isAttached) {
+      _itemScrollController.scrollTo(
+        index: _selectedIndex * 2,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        alignment: 0.5,
+      );
+    }
+
+    // Широкий режим: выбранный день встаёт в центр области колонок.
+    if (_columnsScroll.isAttached && _colDates.isNotEmpty) {
+      _columnsScroll.scrollTo(
+        index: _selectedColIndex(),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        alignment: _centerAlignment(),
+      );
+    }
+  }
+
+  /// Колонка выбранного дня. Если у выбранного дня ДЗ нет — ближайшая
+  /// следующая с ДЗ (а если таких нет — последняя).
+  int _selectedColIndex() {
+    if (_colDates.isEmpty || _dates.isEmpty) return 0;
+    final sel = _dates[_selectedIndex];
+    final i = _colDates.indexWhere((d) => !d.isBefore(sel));
+    return i < 0 ? _colDates.length - 1 : i;
+  }
+
+  /// alignment для ScrollablePositionedList: где стоит ЛЕВЫЙ край колонки
+  /// (доля ширины окна). Для центра: 0.5 − (ширина колонки / 2) / ширина.
+  /// Колонок помещается [_colsPerView], значит ширина колонки = 1 / n.
+  double _centerAlignment() => (0.5 - 0.5 / _colsPerView).clamp(0.0, 1.0);
+
+  /// Стрелки ←/→: переход к соседнему ДНЮ С ДЗ.
+  void _moveSelection(int delta) {
+    if (_colDates.isEmpty) return;
+    final next = (_selectedColIndex() + delta).clamp(0, _colDates.length - 1);
+    final dateIndex = _dates.indexOf(_colDates[next]);
+    if (dateIndex < 0) return;
+    if (dateIndex == _selectedIndex) {
+      _scrollToSelected();
+    } else {
+      _select(dateIndex);
+    }
+  }
+
+  Map<DateTime, List<Homework>> _itemsByDate() {
+    final list = widget.homeworks;
+    if (_byDateCache != null && identical(_byDateCacheForList, list)) {
+      return _byDateCache!;
+    }
+    final map = <DateTime, List<Homework>>{};
+    for (final h in list ?? const <Homework>[]) {
+      if (!_hasContent(h)) continue;
+      final d = _dateFor(h);
+      if (d == null) continue;
+      map.putIfAbsent(DateTime(d.year, d.month, d.day), () => []).add(h);
+    }
+    for (final items in map.values) {
+      items.sort(
+        (a, b) => (a.subjectName ?? '').compareTo(b.subjectName ?? ''),
+      );
+    }
+    _byDateCache = map;
+    _byDateCacheForList = list;
+    return map;
   }
 
   void _select(int index) {
@@ -214,49 +296,223 @@ class _HomeworkViewState extends State<HomeworkView>
   static bool _sameDay(DateTime? a, DateTime b) =>
       a != null && a.year == b.year && a.month == b.month && a.day == b.day;
 
+  Map<ShortcutActivator, VoidCallback> get _bindings => {
+    const SingleActivator(LogicalKeyboardKey.arrowLeft): () =>
+        _moveSelection(-1),
+    const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
+        _moveSelection(1),
+  };
+
   @override
   Widget build(BuildContext context) {
     super.build(context);
 
-    return RefreshIndicator(
-      onRefresh: widget.onRefresh,
-      child: AsyncStateView(
-        isLoading: widget.isLoading,
-        error: widget.error,
-        hasData: _dates.isNotEmpty,
-        contentBuilder: (context) {
-          final items = _forSelectedDate();
-          return Column(
-            children: [
-              const HomeworkGroupSwitcher(),
-              _DateStrip(
-                dates: _dates,
-                selectedIndex: _selectedIndex,
-                onSelected: _select,
-                itemScrollController: _itemScrollController,
-              ),
-              const Divider(height: 1),
-              Expanded(
-                child: items.isEmpty
-                    ? ListView(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(16),
-                        children: const [
-                          SizedBox(height: 80),
-                          Center(child: Text('Нет ДЗ на этот день')),
-                        ],
-                      )
-                    : ListView.separated(
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        padding: const EdgeInsets.all(16),
-                        itemCount: items.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 10),
-                        itemBuilder: (_, i) => HomeworkCard(homework: items[i]),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = AdaptiveLayout.wideContent(constraints.maxWidth);
+
+        final body = AsyncStateView(
+          isLoading: widget.isLoading,
+          error: widget.error,
+          hasData: _dates.isNotEmpty,
+          contentBuilder: (context) =>
+              wide ? _buildWide(constraints.maxWidth) : _buildNarrow(),
+        );
+
+        return CallbackShortcuts(
+          bindings: (wide && widget.isActive)
+              ? _bindings
+              : const <ShortcutActivator, VoidCallback>{},
+          child: Focus(
+            focusNode: _focus,
+            // Pull-to-refresh — только для узкого (тач) режима.
+            child: wide
+                ? body
+                : RefreshIndicator(onRefresh: widget.onRefresh, child: body),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildNarrow() {
+    final items = _forSelectedDate();
+    return Column(
+      children: [
+        const HomeworkGroupSwitcher(),
+        _DateStrip(
+          dates: _dates,
+          selectedIndex: _selectedIndex,
+          onSelected: _select,
+          itemScrollController: _itemScrollController,
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: items.isEmpty
+              ? ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  children: const [
+                    SizedBox(height: 80),
+                    Center(child: Text('Нет ДЗ на этот день')),
+                  ],
+                )
+              : ListView.separated(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  itemCount: items.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (_, i) => HomeworkCard(homework: items[i]),
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// Широкий режим: полоса дат сверху + колонки по дням. Сколько колонок
+  /// влезет (минимум ~320 px каждая), столько и показываем; выбранный день
+  /// встаёт в центр.
+  Widget _buildWide(double width) {
+    final byDate = _itemsByDate();
+    final n = math.max(1, (width / 320).floor());
+    _colsPerView = n;
+    final colW = width / n;
+    final selCol = _selectedColIndex();
+
+    return Column(
+      children: [
+        const HomeworkGroupSwitcher(),
+        _DateStrip(
+          dates: _dates,
+          selectedIndex: _selectedIndex,
+          onSelected: _select,
+          itemScrollController: _itemScrollController,
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ScrollablePositionedList.builder(
+            itemScrollController: _columnsScroll,
+            scrollDirection: Axis.horizontal,
+            initialScrollIndex: selCol,
+            initialAlignment: _centerAlignment(),
+            itemCount: _colDates.length,
+            itemBuilder: (context, i) {
+              final d = _colDates[i];
+              return SizedBox(
+                width: colW,
+                child: _DayColumn(
+                  date: d,
+                  items: byDate[d] ?? const [],
+                  selected: i == selCol,
+                  showDivider: i > 0,
+                  onHeaderTap: () {
+                    final idx = _dates.indexOf(d);
+                    if (idx >= 0) _select(idx);
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Колонка одного дня: шапка (кликабельная, подсвечена у выбранного дня)
+/// и вертикальный список карточек.
+class _DayColumn extends StatelessWidget {
+  final DateTime date;
+  final List<Homework> items;
+  final bool selected;
+  final bool showDivider;
+  final VoidCallback onHeaderTap;
+
+  const _DayColumn({
+    required this.date,
+    required this.items,
+    required this.selected,
+    required this.showDivider,
+    required this.onHeaderTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final now = DateTime.now();
+    final isToday =
+        date.year == now.year && date.month == now.month && date.day == now.day;
+
+    final weekday = kWeekdaysShort[date.weekday - 1];
+    final dayMonth = '${date.day}.${date.month.toString().padLeft(2, '0')}';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(left: BorderSide(color: cs.outlineVariant))
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Material(
+            color: selected ? cs.secondaryContainer : Colors.transparent,
+            child: InkWell(
+              onTap: onHeaderTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    Text(
+                      '$weekday, $dayMonth',
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: selected
+                            ? cs.onSecondaryContainer
+                            : cs.onSurface,
                       ),
+                    ),
+                    if (isToday) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: selected
+                              ? cs.onSecondaryContainer
+                              : cs.primary,
+                        ),
+                      ),
+                    ],
+                    const Spacer(),
+                    Text(
+                      '${items.length}',
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: selected
+                            ? cs.onSecondaryContainer
+                            : cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ],
-          );
-        },
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (_, i) => HomeworkCard(homework: items[i]),
+            ),
+          ),
+        ],
       ),
     );
   }

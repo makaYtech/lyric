@@ -1,3 +1,4 @@
+import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 
@@ -8,12 +9,18 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'core/auth/auth_config.dart';
 import 'core/auth/epos_session.dart';
 import 'core/auth/session_refresh_service.dart';
+import 'core/settings/layout_prefs.dart';
 import 'core/settings/update_prefs.dart';
 import 'core/theme/theme_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
+  // desktop_webview_window запускает окно входа как второй экземпляр
+  // приложения с особыми аргументами — такой запуск обрабатывается тут
+  // и дальше (БД, сессия, runApp) не идёт. Вызываем ДО ensureInitialized:
+  // плагин запускает runApp в своей зоне, иначе «Zone mismatch».
+  if (runWebViewTitleBarWidget(args)) return;
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
@@ -22,6 +29,7 @@ Future<void> main() async {
   final themeController = await ThemeController.load();
   await AuthConfig.load();
   await UpdatePrefs.load();
+  await LayoutPrefs.load();
 
   // Пробуем поднять сессию из защищённого хранилища.
   // Если refresh_token жив — ensureFresh тихо обновит access,

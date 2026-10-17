@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../core/layout/adaptive.dart';
 import '../models/subject_grade.dart';
 import '../widgets/common/async_state_view.dart';
+import '../widgets/common/masonry_columns.dart';
 import '../widgets/grades/subject_grade_card.dart';
 
 class GradesView extends StatefulWidget {
@@ -24,6 +26,15 @@ class GradesView extends StatefulWidget {
 
 class _GradesViewState extends State<GradesView> {
   String? _selectedPeriod;
+
+  // Для видимого скроллбара в режиме сетки.
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   // Кэш периодов. Раньше _collectPeriods прогонял все предметы × все
   // периоды на каждый build; теперь только при смене списка grades.
@@ -140,24 +151,66 @@ class _GradesViewState extends State<GradesView> {
               _selectedPeriod ?? (periods.isNotEmpty ? periods.first : null);
           final visible = _visible();
 
+          final emptyList = ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            children: const [
+              SizedBox(height: 80),
+              Center(child: Text('Нет оценок за этот период')),
+            ],
+          );
+
           final listView = visible.isEmpty
-              ? ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  children: const [
-                    SizedBox(height: 80),
-                    Center(child: Text('Нет оценок за этот период')),
-                  ],
-                )
-              : ListView.separated(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(16),
-                  itemCount: visible.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
-                  itemBuilder: (_, i) => SubjectGradeCard(
-                    grade: visible[i],
-                    selectedPeriod: selected,
-                  ),
+              ? emptyList
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final wide = AdaptiveLayout.wideContent(
+                      constraints.maxWidth,
+                    );
+                    if (!wide) {
+                      return ListView.separated(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(16),
+                        itemCount: visible.length,
+                        separatorBuilder: (_, _) => const SizedBox(height: 10),
+                        itemBuilder: (_, i) => SubjectGradeCard(
+                          grade: visible[i],
+                          selectedPeriod: selected,
+                        ),
+                      );
+                    }
+
+                    // Широкий экран: колонки карточек, ~360 px каждая.
+                    final columns = (constraints.maxWidth / 360).floor().clamp(
+                      1,
+                      4,
+                    );
+                    return Scrollbar(
+                      controller: _scroll,
+                      thumbVisibility: true,
+                      child: SingleChildScrollView(
+                        controller: _scroll,
+                        padding: const EdgeInsets.all(16),
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1500),
+                            child: MasonryColumns(
+                              columns: columns,
+                              spacing: 12,
+                              children: [
+                                for (final g in visible)
+                                  SubjectGradeCard(
+                                    grade: g,
+                                    selectedPeriod: selected,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 );
 
           return Column(

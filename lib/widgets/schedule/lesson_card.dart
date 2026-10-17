@@ -6,6 +6,7 @@ import '../../models/lesson_grades.dart';
 import '../common/absence_dot.dart';
 import '../common/grade_dot.dart';
 import 'lesson_details_sheet.dart';
+import '../shell/adaptive_sheet.dart';
 
 class LessonCard extends StatelessWidget {
   final Lesson lesson;
@@ -52,24 +53,19 @@ class LessonCard extends StatelessWidget {
   }
 
   Future<void> _openDetails(BuildContext context) {
-    return showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
+    return showAdaptiveSheet<void>(
+      context,
+      draggable: true,
       useSafeArea: true,
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.5,
-        minChildSize: 0.3,
-        maxChildSize: 1.0,
-        snap: true,
-        snapSizes: const [0.5, 1.0],
-        expand: false,
-        builder: (context, scrollController) => LessonDetailsSheet(
-          lesson: lesson,
-          grades: grades,
-          attendance: attendance,
-          scrollController: scrollController,
-        ),
+      initialSize: 0.5,
+      minSize: 0.3,
+      maxSize: 1.0,
+      snapSizes: const [0.5, 1.0],
+      builder: (context, scrollController) => LessonDetailsSheet(
+        lesson: lesson,
+        grades: grades,
+        attendance: attendance,
+        scrollController: scrollController!,
       ),
     );
   }
