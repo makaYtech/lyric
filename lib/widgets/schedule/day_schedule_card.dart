@@ -10,11 +10,13 @@ import '../../models/lesson.dart';
 import '../../models/lesson_attendance.dart';
 import '../../models/lesson_grades.dart';
 import 'gap_card.dart';
+import 'lesson_density.dart';
 import 'lesson_card.dart';
 
 class DayScheduleCard extends StatefulWidget {
   final DaySchedule day;
   final bool highlightToday;
+  final LessonDensity density;
   final LessonGradesLookup grades;
   final LessonAttendanceLookup attendances;
   final BellsTimetable? bells;
@@ -39,6 +41,7 @@ class DayScheduleCard extends StatefulWidget {
     super.key,
     required this.day,
     this.highlightToday = true,
+    this.density = LessonDensity.comfortable,
     this.grades = LessonGradesLookup.empty,
     this.attendances = LessonAttendanceLookup.empty,
     this.bells,
@@ -346,15 +349,26 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          padding: EdgeInsets.only(
+            left: 4,
+            bottom: switch (widget.density) {
+              LessonDensity.comfortable => 8,
+              LessonDensity.compact => 4,
+              LessonDensity.dense => 2,
+            },
+          ),
           child: Row(
             children: [
               Text(
                 day.weekdayName,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: isToday ? theme.colorScheme.primary : null,
-                ),
+                style:
+                    (widget.density.isDense
+                            ? theme.textTheme.titleSmall
+                            : theme.textTheme.titleMedium)
+                        ?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: isToday ? theme.colorScheme.primary : null,
+                        ),
               ),
               const SizedBox(width: 8),
               Text(
@@ -393,7 +407,14 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
             borderRadius: BorderRadius.circular(16),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            padding: EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: switch (widget.density) {
+                LessonDensity.comfortable => 8,
+                LessonDensity.compact => 6,
+                LessonDensity.dense => 4,
+              },
+            ),
             child: ValueListenableBuilder<bool>(
               valueListenable: SchedulePrefs.mergePairs,
               builder: (context, merge, _) => ValueListenableBuilder<bool>(
@@ -422,7 +443,9 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
   Widget _buildContent(List<Lesson> lessons) {
     if (lessons.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 20),
+        padding: EdgeInsets.symmetric(
+          vertical: widget.density.isComfortable ? 20 : 8,
+        ),
         child: Center(
           child: Text(
             'Нет расписания',
@@ -470,6 +493,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
           isSelectionMode: widget.isSelectionMode,
           isSelected: isSelected,
           highlighted: isDropTarget,
+          density: widget.density,
           onTap: widget.isSelectionMode
               ? () => widget.onLessonTap?.call(lesson)
               : null,
@@ -512,6 +536,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
       invisible: isDragged,
       disableInkWell: canDrag,
       changed: isChanged,
+      density: widget.density,
     );
 
     if (canDrag) {
@@ -621,6 +646,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
             isSelectionMode: false,
             selectedLessonIds: const {},
             onTap: () {},
+            density: widget.density,
           ),
         ),
       ),

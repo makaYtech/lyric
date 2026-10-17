@@ -6,6 +6,7 @@ import '../core/auth/auth_coordinator.dart';
 import '../core/auth/epos_session.dart';
 import '../core/auth/session_notifier.dart';
 import '../core/layout/adaptive.dart';
+import '../core/settings/homework_prefs.dart';
 import '../core/settings/layout_prefs.dart';
 import '../core/settings/avatar_storage.dart';
 import '../core/theme/theme_controller.dart';
@@ -307,12 +308,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Вкладки в панели. «Профиль» (tabIndex 0) сюда не входит: он открывается
+  /// нажатием на пользователя внизу панели. Поэтому индекс в панели =
+  /// tabIndex − 1.
   static const _sideBarItems = [
-    SideBarItem(
-      icon: Icons.person_outline,
-      selectedIcon: Icons.person,
-      label: 'Профиль',
-    ),
     SideBarItem(
       icon: Icons.grade_outlined,
       selectedIcon: Icons.grade,
@@ -336,6 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
       listenable: Listenable.merge([
         LayoutPrefs.sideBarOnRight,
         LayoutPrefs.sideBarExpanded,
+        HomeworkPrefs.groupByDue,
         _controller,
         _session,
       ]),
@@ -346,8 +346,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
         final bar = AppSideBar(
           items: _sideBarItems,
-          selectedIndex: _controller.tabIndex,
-          onSelected: _onTabSelected,
+          selectedIndex: _controller.tabIndex - 1,
+          onSelected: (i) => _onTabSelected(i + 1),
+          userSelected: _controller.tabIndex == 0,
+          onUserTap: () => _onTabSelected(0),
           expanded: expanded,
           onToggleExpanded: AdaptiveLayout.canToggleSideBar
               ? () => LayoutPrefs.setSideBarExpanded(!expanded)
@@ -357,15 +359,23 @@ class _HomeScreenState extends State<HomeScreen> {
           isLoading: _controller.anyLoading,
           onRefresh: _onRefreshTap,
           onOpenSettings: _openSettings,
+          toggles: [
+            // Бывший переключатель «Ещё немного — и кранты» из шапок ДЗ и
+            // расписания: на широком экране он живёт здесь.
+            SideBarToggle(
+              icon: Icons.event_busy_outlined,
+              label: HomeworkPrefs.groupByDue.value
+                  ? 'ДЗ по сроку сдачи (вкл)'
+                  : 'ДЗ по сроку сдачи',
+              active: HomeworkPrefs.groupByDue.value,
+              onTap: () =>
+                  HomeworkPrefs.setGroupByDue(!HomeworkPrefs.groupByDue.value),
+            ),
+          ],
           userName: profile?.userName ?? 'Профиль',
           userSubtitle: profile?.className,
           userAvatarKey: AvatarStorage.studentKey(_controller.tokens.profileId),
           userActions: [
-            SideBarUserAction(
-              icon: Icons.person_outline,
-              label: 'Профиль',
-              onTap: () => _onTabSelected(0),
-            ),
             if (_session.needsAuth)
               SideBarUserAction(
                 icon: Icons.login,

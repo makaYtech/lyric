@@ -7,6 +7,7 @@ import '../common/absence_dot.dart';
 import '../common/grade_dot.dart';
 import 'lesson_details_sheet.dart';
 import '../shell/adaptive_sheet.dart';
+import 'lesson_density.dart';
 
 class LessonCard extends StatelessWidget {
   final Lesson lesson;
@@ -29,6 +30,8 @@ class LessonCard extends StatelessWidget {
   /// Урок затронут правкой (move/delete/pair*/reorder).
   final bool changed;
 
+  final LessonDensity density;
+
   const LessonCard({
     super.key,
     required this.lesson,
@@ -41,6 +44,7 @@ class LessonCard extends StatelessWidget {
     this.invisible = false,
     this.disableInkWell = false,
     this.changed = false,
+    this.density = LessonDensity.comfortable,
   });
 
   bool get _isSelected {
@@ -70,26 +74,13 @@ class LessonCard extends StatelessWidget {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final dim = theme.colorScheme.onSurfaceVariant;
-    final hasTeacher = lesson.teacher != null && lesson.teacher!.isNotEmpty;
-
-    final selected = _isSelected;
-    final faded = isSelectionMode && !selected;
-
-    final cardColor = selected
-        ? theme.colorScheme.primaryContainer
-        : theme.colorScheme.surfaceContainerHighest;
-    final cardShape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12),
-      side: selected
-          ? BorderSide(color: theme.colorScheme.primary, width: 1.5)
-          : BorderSide.none,
-    );
-
-    final inner = Padding(
+  Widget _comfortableInner(
+    BuildContext context,
+    ThemeData theme,
+    Color dim,
+    bool hasTeacher,
+  ) {
+    return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -218,10 +209,186 @@ class LessonCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// Оценки и «Н» одной строкой — для compact/dense.
+  List<Widget> _dots(BuildContext context, double size) {
+    return [
+      for (final g in grades) ...[
+        const SizedBox(width: 4),
+        GradeDot(
+          value: g.value,
+          size: size,
+          weight: g.weight,
+          onTap: () => showGradeDetails(
+            context,
+            value: g.value,
+            receivedAt: g.receivedAt,
+            subject: lesson.subject,
+            workType: g.workType,
+            weight: g.weight,
+          ),
+        ),
+      ],
+      if (attendance != null) ...[
+        const SizedBox(width: 4),
+        AbsenceDot(
+          excused: attendance!.isExcused,
+          size: size,
+          onTap: () => showAbsenceDetails(
+            context,
+            attendance: attendance!,
+            subject: lesson.subject,
+            teacher: lesson.teacher,
+          ),
+        ),
+      ],
+    ];
+  }
+
+  Widget _changedDot(ThemeData theme) => Container(
+    width: 6,
+    height: 6,
+    margin: const EdgeInsets.only(right: 6),
+    decoration: BoxDecoration(
+      color: theme.colorScheme.error,
+      shape: BoxShape.circle,
+    ),
+  );
+
+  /// Две строки: «время · предмет · оценки» и ниже ДЗ.
+  Widget _compactInner(BuildContext context, ThemeData theme, Color dim) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 7, 12, 7),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (changed) _changedDot(theme),
+              Text(
+                lesson.startTime,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: dim,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  lesson.subject,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (lesson.isPaired) ...[
+                const SizedBox(width: 4),
+                Icon(Icons.link, size: 14, color: dim),
+              ],
+              ..._dots(context, 20),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            'ДЗ: ${lesson.homeworkDisplay}',
+            style: theme.textTheme.bodySmall?.copyWith(color: dim),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Одна строка, как в бумажном дневнике. ДЗ — иконкой с подсказкой
+  /// (полный текст — в деталях по клику).
+  Widget _denseInner(BuildContext context, ThemeData theme, Color dim) {
+    final hasHomework = lesson.homeworks.isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+      child: Row(
+        children: [
+          if (changed) _changedDot(theme),
+          SizedBox(
+            width: 42,
+            child: Text(
+              lesson.startTime,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: dim,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              lesson.subject,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          if (lesson.isPaired) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.link, size: 14, color: dim),
+          ],
+          if (hasHomework) ...[
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'ДЗ: ${lesson.homeworkDisplay}',
+              child: Icon(Icons.edit_note, size: 18, color: dim),
+            ),
+          ],
+          ..._dots(context, 18),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dim = theme.colorScheme.onSurfaceVariant;
+    final hasTeacher = lesson.teacher != null && lesson.teacher!.isNotEmpty;
+
+    final selected = _isSelected;
+    final faded = isSelectionMode && !selected;
+
+    final cardColor = selected
+        ? theme.colorScheme.primaryContainer
+        : theme.colorScheme.surfaceContainerHighest;
+    final cardShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+      side: selected
+          ? BorderSide(color: theme.colorScheme.primary, width: 1.5)
+          : BorderSide.none,
+    );
+
+    final Widget inner = switch (density) {
+      LessonDensity.comfortable => _comfortableInner(
+        context,
+        theme,
+        dim,
+        hasTeacher,
+      ),
+      LessonDensity.compact => _compactInner(context, theme, dim),
+      LessonDensity.dense => _denseInner(context, theme, dim),
+    };
 
     final content = Card(
       elevation: 0,
-      margin: const EdgeInsets.symmetric(vertical: 4),
+      margin: EdgeInsets.symmetric(
+        vertical: switch (density) {
+          LessonDensity.comfortable => 4,
+          LessonDensity.compact => 3,
+          LessonDensity.dense => 2,
+        },
+      ),
       color: cardColor,
       shape: cardShape,
       clipBehavior: Clip.antiAlias,

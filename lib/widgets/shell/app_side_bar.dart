@@ -30,6 +30,21 @@ class SideBarUserAction {
   });
 }
 
+/// Переключатель в панели (вкл/выкл): например, режим группировки ДЗ.
+class SideBarToggle {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const SideBarToggle({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+}
+
 /// Боковая панель для широких окон.
 ///
 /// Сверху вниз: кнопка раскрытия (если [onToggleExpanded] != null),
@@ -66,6 +81,13 @@ class AppSideBar extends StatelessWidget {
   final String? userAvatarKey;
   final List<SideBarUserAction> userActions;
 
+  /// Нажатие на пользователя открывает профиль; подсвечиваем, когда он открыт.
+  final bool userSelected;
+  final VoidCallback onUserTap;
+
+  /// Переключатели над кнопкой «Обновить».
+  final List<SideBarToggle> toggles;
+
   const AppSideBar({
     super.key,
     required this.items,
@@ -82,6 +104,9 @@ class AppSideBar extends StatelessWidget {
     required this.userSubtitle,
     required this.userAvatarKey,
     required this.userActions,
+    required this.userSelected,
+    required this.onUserTap,
+    this.toggles = const [],
   });
 
   @override
@@ -111,10 +136,17 @@ class AppSideBar extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                          // Фиксированные 48×48 — как у вкладок. Иначе на desktop
+                          // compact-density ужимает кнопку до 40 px, и иконка
+                          // оказывается на 4 px левее остальных.
                           child: IconButton(
                             icon: Icon(expanded ? Icons.menu_open : Icons.menu),
                             tooltip: expanded ? 'Свернуть' : 'Развернуть',
                             onPressed: onToggleExpanded,
+                            style: IconButton.styleFrom(
+                              fixedSize: const Size(48, 48),
+                              padding: EdgeInsets.zero,
+                            ),
                           ),
                         ),
                       )
@@ -133,6 +165,14 @@ class AppSideBar extends StatelessWidget {
                         onTap: () => onSelected(i),
                       ),
                     const Spacer(),
+                    for (final t in toggles)
+                      _Tile(
+                        icon: Icon(t.icon),
+                        label: t.label,
+                        selected: t.active,
+                        showLabel: showLabels,
+                        onTap: t.onTap,
+                      ),
                     _buildRefresh(cs, showLabels),
                     _Tile(
                       icon: const Icon(Icons.settings_outlined),
@@ -189,70 +229,119 @@ class AppSideBar extends StatelessWidget {
     );
   }
 
+  List<PopupMenuEntry<int>> _userMenuItems() => [
+    for (var i = 0; i < userActions.length; i++)
+      PopupMenuItem<int>(
+        value: i,
+        child: Row(
+          children: [
+            Icon(userActions[i].icon, size: 20),
+            const SizedBox(width: 12),
+            Text(userActions[i].label),
+          ],
+        ),
+      ),
+  ];
+
+  /// Меню по правому клику на пользователе (в свёрнутой панели «⋮» нет).
+  Future<void> _showUserMenuAt(
+    BuildContext context,
+    Offset globalPosition,
+  ) async {
+    if (userActions.isEmpty) return;
+    final overlay =
+        Overlay.of(context).context.findRenderObject()! as RenderBox;
+    final i = await showMenu<int>(
+      context: context,
+      position: RelativeRect.fromRect(
+        Rect.fromLTWH(globalPosition.dx, globalPosition.dy, 0, 0),
+        Offset.zero & overlay.size,
+      ),
+      items: _userMenuItems(),
+    );
+    if (i != null) userActions[i].onTap();
+  }
+
+  /// Пользователь внизу панели. Нажатие — профиль (отдельной вкладки
+  /// «Профиль» в панели нет), «⋮» или правый клик — меню действий.
   Widget _buildUser(BuildContext context, bool showLabels) {
     final theme = Theme.of(context);
-    final content = Padding(
-      // 20 = 36 (центр иконок) − 16 (радиус аватара).
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Row(
-        children: [
-          PersonAvatar(
-            fullName: userName,
-            radius: 16,
-            avatarKey: userAvatarKey,
-          ),
-          if (showLabels) ...[
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    userName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelLarge,
-                  ),
-                  if (userSubtitle != null)
-                    Text(
-                      userSubtitle!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
+    final cs = theme.colorScheme;
+    final fg = userSelected ? cs.onSecondaryContainer : cs.onSurface;
+
+    // Геометрия: пилюля шириной 48 (при ширине панели 72), внутри аватар 32
+    // с отступом 8 — центр аватара ровно там же, где центры иконок вкладок.
+    final tile = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Material(
+        color: userSelected ? cs.secondaryContainer : Colors.transparent,
+        shape: const StadiumBorder(),
+        child: GestureDetector(
+          onSecondaryTapDown: (d) => _showUserMenuAt(context, d.globalPosition),
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: onUserTap,
+            child: SizedBox(
+              height: 48,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  children: [
+                    PersonAvatar(
+                      fullName: userName,
+                      radius: 16,
+                      avatarKey: userAvatarKey,
                     ),
-                ],
+                    if (showLabels) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              userName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: fg,
+                              ),
+                            ),
+                            if (userSubtitle != null)
+                              Text(
+                                userSubtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: userSelected
+                                      ? cs.onSecondaryContainer
+                                      : cs.onSurfaceVariant,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (userActions.isNotEmpty)
+                        PopupMenuButton<int>(
+                          tooltip: 'Действия',
+                          icon: Icon(Icons.more_vert, size: 20, color: fg),
+                          padding: EdgeInsets.zero,
+                          onSelected: (i) => userActions[i].onTap(),
+                          itemBuilder: (_) => _userMenuItems(),
+                        ),
+                    ],
+                  ],
+                ),
               ),
             ),
-          ],
-        ],
+          ),
+        ),
       ),
     );
 
-    if (userActions.isEmpty) return content;
-
-    return PopupMenuButton<int>(
-      tooltip: userName,
-      padding: EdgeInsets.zero,
-      position: PopupMenuPosition.over,
-      onSelected: (i) => userActions[i].onTap(),
-      itemBuilder: (_) => [
-        for (var i = 0; i < userActions.length; i++)
-          PopupMenuItem<int>(
-            value: i,
-            child: Row(
-              children: [
-                Icon(userActions[i].icon, size: 20),
-                const SizedBox(width: 12),
-                Text(userActions[i].label),
-              ],
-            ),
-          ),
-      ],
-      child: content,
-    );
+    return showLabels
+        ? tile
+        : Tooltip(message: '$userName — профиль', child: tile);
   }
 }
 

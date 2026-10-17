@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../core/layout/adaptive.dart';
 import '../core/settings/teacher_prefs.dart';
 import '../models/student_profile.dart';
 import '../models/teacher.dart';
 import '../widgets/common/async_state_view.dart';
+import '../widgets/common/masonry_columns.dart';
 import '../widgets/profile/profile_card.dart';
+import '../widgets/profile/teacher_card.dart';
 import '../widgets/profile/teachers_section.dart';
 
 class ProfileView extends StatelessWidget {
@@ -46,19 +49,28 @@ class ProfileView extends StatelessWidget {
           valueListenable: TeacherPrefs.onlyStudentTeachers,
           builder: (context, onlyMine, _) {
             final visible = _visibleTeachers(onlyMine);
-            return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                ProfileCard(
-                  profile: profile!,
-                  avatarKey: studentAvatarKey,
-                ),
-                if (visible != null && visible.isNotEmpty) ...[
-                  const SizedBox(height: 20),
-                  TeachersSection(teachers: visible),
-                ],
-              ],
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                if (AdaptiveLayout.wideContent(constraints.maxWidth)) {
+                  return _WideProfile(
+                    profile: profile!,
+                    avatarKey: studentAvatarKey,
+                    teachers: visible,
+                    width: constraints.maxWidth,
+                  );
+                }
+                return ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    ProfileCard(profile: profile!, avatarKey: studentAvatarKey),
+                    if (visible != null && visible.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      TeachersSection(teachers: visible),
+                    ],
+                  ],
+                );
+              },
             );
           },
         ),
@@ -73,5 +85,107 @@ class ProfileView extends StatelessWidget {
     final ids = studentTeacherIds;
     if (ids == null || ids.isEmpty) return const [];
     return list.where((t) => ids.contains(t.id)).toList();
+  }
+}
+
+/// Профиль на широком экране: слева карточка ученика (фиксированной ширины,
+/// со своей прокруткой), справа учителя «кладкой» из нескольких колонок.
+/// Каждая карточка учителя раскрывается независимо, поэтому колонки разной
+/// высоты — как раз то, что нужно.
+class _WideProfile extends StatefulWidget {
+  final StudentProfile profile;
+  final String? avatarKey;
+  final List<Teacher>? teachers;
+  final double width;
+
+  const _WideProfile({
+    required this.profile,
+    required this.avatarKey,
+    required this.teachers,
+    required this.width,
+  });
+
+  @override
+  State<_WideProfile> createState() => _WideProfileState();
+}
+
+class _WideProfileState extends State<_WideProfile> {
+  static const _leftWidth = 400.0;
+
+  final _leftScroll = ScrollController();
+  final _rightScroll = ScrollController();
+
+  @override
+  void dispose() {
+    _leftScroll.dispose();
+    _rightScroll.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final teachers = widget.teachers ?? const <Teacher>[];
+
+    final rightWidth = widget.width - _leftWidth - 1 - 32;
+    final columns = (rightWidth / 340).floor().clamp(1, 3);
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          width: _leftWidth,
+          child: SingleChildScrollView(
+            controller: _leftScroll,
+            padding: const EdgeInsets.all(16),
+            child: ProfileCard(
+              profile: widget.profile,
+              avatarKey: widget.avatarKey,
+            ),
+          ),
+        ),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: teachers.isEmpty
+              ? Center(
+                  child: Text(
+                    'Нет данных об учителях',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                )
+              : Scrollbar(
+                  controller: _rightScroll,
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    controller: _rightScroll,
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Учителя · ${teachers.length}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Divider(height: 1),
+                        const SizedBox(height: 12),
+                        MasonryColumns(
+                          columns: columns,
+                          spacing: 10,
+                          children: [
+                            for (final t in teachers) TeacherCard(teacher: t),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
   }
 }

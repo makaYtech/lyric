@@ -1,11 +1,14 @@
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../core/layout/adaptive.dart';
 import '../core/settings/homework_prefs.dart';
+import '../core/util/date_time.dart';
 import '../core/util/labels.dart';
 import '../models/homework.dart';
 import '../widgets/common/async_state_view.dart';
@@ -48,6 +51,7 @@ class _HomeworkViewState extends State<HomeworkView>
   final _focus = FocusNode(debugLabel: 'homework');
   List<DateTime> _colDates = const [];
   int _colsPerView = 1;
+  DateTime? _lastWheelNav;
   Map<DateTime, List<Homework>>? _byDateCache;
   List<Homework>? _byDateCacheForList;
 
@@ -210,7 +214,8 @@ class _HomeworkViewState extends State<HomeworkView>
     // Широкий режим: выбранный день встаёт в центр области колонок.
     if (_columnsScroll.isAttached && _colDates.isNotEmpty) {
       _columnsScroll.scrollTo(
-        index: _selectedColIndex(),
+        // +1: нулевой элемент — левый спейсер (см. _buildWide).
+        index: _selectedColIndex() + 1,
         duration: const Duration(milliseconds: 300),
         curve: Curves.easeInOut,
         alignment: _centerAlignment(),
@@ -301,7 +306,42 @@ class _HomeworkViewState extends State<HomeworkView>
         _moveSelection(-1),
     const SingleActivator(LogicalKeyboardKey.arrowRight): () =>
         _moveSelection(1),
+    const SingleActivator(LogicalKeyboardKey.home): _goToToday,
   };
+
+  /// К сегодняшнему дню (или ближайшему следующему с ДЗ).
+  void _goToToday() {
+    if (_dates.isEmpty) return;
+    final today = dayOnly(DateTime.now());
+    var idx = _dates.indexWhere((d) => !d.isBefore(today));
+    if (idx < 0) idx = _dates.length - 1;
+    if (idx == _selectedIndex) {
+      _scrollToSelected();
+    } else {
+      _select(idx);
+    }
+  }
+
+  /// Горизонтальное колесо / тачпад / Shift+колесо — листает по одному дню.
+  /// Вертикальное колесо остаётся за прокруткой самих колонок.
+  void _onPointerSignal(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final dx = e.scrollDelta.dx;
+    final dy = e.scrollDelta.dy;
+    final d = shift ? dy : dx;
+    if (d.abs() < 4) return;
+    if (!shift && dx.abs() <= dy.abs()) return;
+
+    final now = DateTime.now();
+    final last = _lastWheelNav;
+    if (last != null &&
+        now.difference(last) < const Duration(milliseconds: 250)) {
+      return;
+    }
+    _lastWheelNav = now;
+    _moveSelection(d > 0 ? 1 : -1);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -379,24 +419,32 @@ class _HomeworkViewState extends State<HomeworkView>
     final colW = width / n;
     final selCol = _selectedColIndex();
 
-    return Column(
-      children: [
-        const HomeworkGroupSwitcher(),
-        _DateStrip(
-          dates: _dates,
-          selectedIndex: _selectedIndex,
-          onSelected: _select,
-          itemScrollController: _itemScrollController,
-        ),
-        const Divider(height: 1),
-        Expanded(
-          child: ScrollablePositionedList.builder(
+    final canPrev = selCol > 0;
+    final canNext = selCol < _colDates.length - 1;
+
+    // Полосы дат здесь нет: выбор дня — клик по шапке колонки. Листать можно
+    // стрелками ←/→, кнопками по краям, горизонтальным колесом/тачпадом и
+    // Shift+колесом; Home — к сегодняшнему дню. Переключатель группировки
+    // ДЗ переехал в боковую панель.
+    return Listener(
+      onPointerSignal: _onPointerSignal,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          ScrollablePositionedList.builder(
             itemScrollController: _columnsScroll,
             scrollDirection: Axis.horizontal,
-            initialScrollIndex: selCol,
+            initialScrollIndex: selCol + 1,
             initialAlignment: _centerAlignment(),
-            itemCount: _colDates.length,
-            itemBuilder: (context, i) {
+            // По краям — пустые спейсеры в (ширина − колонка) / 2: без них
+            // первую и последнюю колонки (а сегодняшний день часто у края,
+            // ведь будущих ДЗ мало) нельзя поставить в центр.
+            itemCount: _colDates.length + 2,
+            itemBuilder: (context, p) {
+              if (p == 0 || p == _colDates.length + 1) {
+                return SizedBox(width: (width - colW) / 2);
+              }
+              final i = p - 1;
               final d = _colDates[i];
               return SizedBox(
                 width: colW,
@@ -413,14 +461,67 @@ class _HomeworkViewState extends State<HomeworkView>
               );
             },
           ),
-        ),
-      ],
+          Positioned(
+            left: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: _EdgeButton(
+                icon: Icons.chevron_left,
+                tooltip: 'Предыдущий день (←)',
+                onPressed: canPrev ? () => _moveSelection(-1) : null,
+              ),
+            ),
+          ),
+          Positioned(
+            right: 8,
+            top: 0,
+            bottom: 0,
+            child: Center(
+              child: _EdgeButton(
+                icon: Icons.chevron_right,
+                tooltip: 'Следующий день (→)',
+                onPressed: canNext ? () => _moveSelection(1) : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Круглая кнопка листания по краю области колонок.
+class _EdgeButton extends StatelessWidget {
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  const _EdgeButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Material(
+      color: cs.surfaceContainerHigh,
+      elevation: 2,
+      shape: const CircleBorder(),
+      child: IconButton(
+        icon: Icon(icon),
+        tooltip: tooltip,
+        onPressed: onPressed,
+      ),
     );
   }
 }
 
 /// Колонка одного дня: шапка (кликабельная, подсвечена у выбранного дня)
-/// и вертикальный список карточек.
+/// и вертикальный список карточек. Сегодняшний день выделен отдельно от
+/// выбранного: цветная полоса сверху, плашка «сегодня», лёгкий тон колонки.
 class _DayColumn extends StatelessWidget {
   final DateTime date;
   final List<Homework> items;
@@ -436,19 +537,37 @@ class _DayColumn extends StatelessWidget {
     required this.onHeaderTap,
   });
 
+  /// «сегодня» / «завтра» / «вчера» или null.
+  static String? _relative(DateTime date) {
+    final diff = dayOnly(date).difference(dayOnly(DateTime.now())).inDays;
+    return switch (diff) {
+      0 => 'сегодня',
+      1 => 'завтра',
+      -1 => 'вчера',
+      _ => null,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
-    final now = DateTime.now();
-    final isToday =
-        date.year == now.year && date.month == now.month && date.day == now.day;
+    final relative = _relative(date);
+    final isToday = relative == 'сегодня';
 
     final weekday = kWeekdaysShort[date.weekday - 1];
     final dayMonth = '${date.day}.${date.month.toString().padLeft(2, '0')}';
 
+    final headerFg = selected ? cs.onSecondaryContainer : cs.onSurface;
+    final subFg = selected ? cs.onSecondaryContainer : cs.onSurfaceVariant;
+
+    final columnTint = isToday
+        ? Color.alphaBlend(cs.primary.withValues(alpha: 0.06), cs.surface)
+        : null;
+
     return DecoratedBox(
       decoration: BoxDecoration(
+        color: columnTint,
         border: showDivider
             ? Border(left: BorderSide(color: cs.outlineVariant))
             : null,
@@ -456,6 +575,11 @@ class _DayColumn extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Цветная полоса сегодняшнего дня.
+          Container(
+            height: 3,
+            color: isToday ? cs.primary : Colors.transparent,
+          ),
           Material(
             color: selected ? cs.secondaryContainer : Colors.transparent,
             child: InkWell(
@@ -463,7 +587,7 @@ class _DayColumn extends StatelessWidget {
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
-                  vertical: 12,
+                  vertical: 10,
                 ),
                 child: Row(
                   children: [
@@ -471,21 +595,26 @@ class _DayColumn extends StatelessWidget {
                       '$weekday, $dayMonth',
                       style: theme.textTheme.titleSmall?.copyWith(
                         fontWeight: FontWeight.w700,
-                        color: selected
-                            ? cs.onSecondaryContainer
-                            : cs.onSurface,
+                        color: isToday && !selected ? cs.primary : headerFg,
                       ),
                     ),
-                    if (isToday) ...[
+                    if (relative != null) ...[
                       const SizedBox(width: 8),
                       Container(
-                        width: 6,
-                        height: 6,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
                         decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: selected
-                              ? cs.onSecondaryContainer
-                              : cs.primary,
+                          color: isToday ? cs.primary : cs.surfaceContainerHigh,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          relative,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: isToday ? cs.onPrimary : cs.onSurfaceVariant,
+                          ),
                         ),
                       ),
                     ],
@@ -493,9 +622,7 @@ class _DayColumn extends StatelessWidget {
                     Text(
                       '${items.length}',
                       style: theme.textTheme.labelMedium?.copyWith(
-                        color: selected
-                            ? cs.onSecondaryContainer
-                            : cs.onSurfaceVariant,
+                        color: subFg,
                       ),
                     ),
                   ],

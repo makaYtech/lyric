@@ -1,9 +1,14 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart'
+    show PointerScrollEvent, PointerSignalEvent;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../core/layout/adaptive.dart';
 import '../core/schedule/gap_utils.dart';
 import '../core/settings/schedule_prefs.dart';
+import '../core/util/date_time.dart';
 import '../core/util/labels.dart';
 import '../models/attendance.dart';
 import '../models/bells_timetable.dart';
@@ -17,6 +22,7 @@ import '../models/subject_grade.dart';
 import '../widgets/common/async_state_view.dart';
 import '../widgets/homework/homework_group_switcher.dart';
 import '../widgets/schedule/day_schedule_card.dart';
+import '../widgets/schedule/lesson_density.dart';
 import '../widgets/schedule/overrides_sheet.dart';
 import '../widgets/schedule/selection_toolbar.dart';
 import '../widgets/shell/adaptive_sheet.dart';
@@ -119,6 +125,8 @@ class _ScheduleViewState extends State<ScheduleView>
   bool get wantKeepAlive => true;
 
   final _scrollController = ScrollController();
+  final _focus = FocusNode(debugLabel: 'schedule');
+  DateTime? _lastWheelNav;
   final _listKey = GlobalKey();
   final _dayKeys = <GlobalKey>[];
   int _activeDayIndex = 0;
@@ -170,10 +178,17 @@ class _ScheduleViewState extends State<ScheduleView>
       );
     }
     if (widget.isActive && !widget.autoScrollAlreadyDone) _tryAutoScroll();
+    if (!oldWidget.isActive && widget.isActive) {
+      // Чтобы ←/→ листали недели сразу после переключения на вкладку.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focus.requestFocus();
+      });
+    }
   }
 
   @override
   void dispose() {
+    _focus.dispose();
     _autoScrollTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -1073,6 +1088,41 @@ class _ScheduleViewState extends State<ScheduleView>
     widget.onWeekChanged(DateTime(newStart.year, newStart.month, newStart.day));
   }
 
+  void _goToCurrentWeek() {
+    if (_selectionMode) _exitSelection();
+    widget.onWeekChanged(currentMonday());
+  }
+
+  Map<ShortcutActivator, VoidCallback> get _bindings => {
+    const SingleActivator(LogicalKeyboardKey.arrowLeft): () => _shiftWeek(-1),
+    const SingleActivator(LogicalKeyboardKey.arrowRight): () => _shiftWeek(1),
+    const SingleActivator(LogicalKeyboardKey.home): _goToCurrentWeek,
+    const SingleActivator(LogicalKeyboardKey.escape): () {
+      if (_selectionMode) _exitSelection();
+    },
+  };
+
+  /// Горизонтальное колесо / тачпад / Shift+колесо — листает недели.
+  /// Вертикальное колесо остаётся за прокруткой страницы.
+  void _onPointerSignal(PointerSignalEvent e) {
+    if (e is! PointerScrollEvent) return;
+    final shift = HardwareKeyboard.instance.isShiftPressed;
+    final dx = e.scrollDelta.dx;
+    final dy = e.scrollDelta.dy;
+    final d = shift ? dy : dx;
+    if (d.abs() < 4) return;
+    if (!shift && dx.abs() <= dy.abs()) return;
+
+    final now = DateTime.now();
+    final last = _lastWheelNav;
+    if (last != null &&
+        now.difference(last) < const Duration(milliseconds: 400)) {
+      return;
+    }
+    _lastWheelNav = now;
+    _shiftWeek(d > 0 ? 1 : -1);
+  }
+
   Future<void> _pickWeek() async {
     if (_selectionMode) _exitSelection();
     final now = DateTime.now();
@@ -1088,165 +1138,319 @@ class _ScheduleViewState extends State<ScheduleView>
     widget.onWeekChanged(DateTime(monday.year, monday.month, monday.day));
   }
 
+  /// Карточка одного дня недели (общая для списка и «дневника»).
+  Widget _dayCard(
+    List<DaySchedule> schedule,
+    int i, [
+    LessonDensity density = LessonDensity.comfortable,
+  ]) {
+    return KeyedSubtree(
+      key: _dayKeys[i],
+      child: DayScheduleCard(
+        density: density,
+        day: schedule[i],
+        grades: _gradesLookup,
+        attendances: _attendanceLookup,
+        bells: widget.bells,
+        isSelectionMode: _selectionMode,
+        selectedLessonIds: _selectedLessonIds,
+        changedLessonIds: widget.changedLessonIds,
+        onLessonTap: _selectionMode
+            ? (l) => _toggle(schedule[i].date, l)
+            : null,
+        onLessonLongPress: _selectionMode
+            ? null
+            : (l) => _enterSelection(schedule[i].date, l),
+        onLessonsReordered: (orig, next) =>
+            _handleReorder(schedule[i].date, orig, next),
+        onDropOnGap: (dragged, gap) =>
+            _handleDropOnGap(schedule[i].date, dragged, gap),
+        onDragGlobalY: _handleDragGlobalY,
+        onDragEnd: _stopAutoScroll,
+      ),
+    );
+  }
+
+  /// Тело вкладки. Узкое окно — один длинный список дней. Широкое — «дневник»
+  /// как в бумажных школьных дневниках: слева пн–ср столбиком, справа чт–сб.
+  Widget _buildScrollBody(List<DaySchedule> schedule, bool wide) {
+    if (!wide) {
+      return _scrollBody(schedule, wide: false);
+    }
+    // Широкий экран: подбираем плотность под высоту, чтобы неделя
+    // помещалась без прокрутки.
+    return LayoutBuilder(
+      builder: (context, constraints) => _scrollBody(
+        schedule,
+        wide: true,
+        density: _pickDensity(schedule, constraints.maxHeight),
+      ),
+    );
+  }
+
+  static const _diaryTopPadding = 12.0;
+  // Снизу оставляем место под плавающую панель выбора уроков.
+  static const _diaryBottomPadding = 64.0;
+
+  /// Индексы дней для левой (пн–ср) и правой (чт–сб) страницы «дневника».
+  (List<int>, List<int>) _diaryPages(List<DaySchedule> schedule) {
+    final left = <int>[];
+    final right = <int>[];
+    for (var i = 0; i < schedule.length; i++) {
+      (schedule[i].date.weekday <= DateTime.wednesday ? left : right).add(i);
+    }
+    return (left, right);
+  }
+
+  /// Самая свободная плотность, при которой более высокая из двух страниц
+  /// (по оценке) влезает в [viewportHeight]. Не влезает даже dense — берём
+  /// dense, дальше работает прокрутка.
+  LessonDensity _pickDensity(
+    List<DaySchedule> schedule,
+    double viewportHeight,
+  ) {
+    final (left, right) = _diaryPages(schedule);
+    final avail = viewportHeight - _diaryTopPadding - _diaryBottomPadding;
+
+    double pageHeight(List<int> idx, LessonDensity d) {
+      var h = 0.0;
+      for (final i in idx) {
+        final n = schedule[i].lessons.length;
+        // +1 — возможное «окно» между уроками.
+        final rows = n == 0 ? 1 : n + 1;
+        h += d.estDayOverhead + rows * d.estRow;
+      }
+      return h;
+    }
+
+    for (final d in LessonDensity.values) {
+      final h = pageHeight(left, d) > pageHeight(right, d)
+          ? pageHeight(left, d)
+          : pageHeight(right, d);
+      if (h <= avail) return d;
+    }
+    return LessonDensity.dense;
+  }
+
+  Widget _scrollBody(
+    List<DaySchedule> schedule, {
+    required bool wide,
+    LessonDensity density = LessonDensity.comfortable,
+  }) {
+    final scroll = SingleChildScrollView(
+      key: _listKey,
+      controller: _scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: wide
+          ? const EdgeInsets.fromLTRB(
+              16,
+              _diaryTopPadding,
+              16,
+              _diaryBottomPadding,
+            )
+          : const EdgeInsets.fromLTRB(16, 16, 16, 96),
+      child: wide
+          ? _buildDiary(schedule, density)
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < schedule.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 20),
+                  _dayCard(schedule, i),
+                ],
+              ],
+            ),
+    );
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScroll,
+      child: wide
+          ? Listener(
+              onPointerSignal: _onPointerSignal,
+              child: Scrollbar(
+                controller: _scrollController,
+                thumbVisibility: true,
+                child: scroll,
+              ),
+            )
+          : scroll,
+    );
+  }
+
+  Widget _buildDiary(List<DaySchedule> schedule, LessonDensity density) {
+    final (left, right) = _diaryPages(schedule);
+    final dayGap = switch (density) {
+      LessonDensity.comfortable => 16.0,
+      LessonDensity.compact => 12.0,
+      LessonDensity.dense => 8.0,
+    };
+
+    Widget page(List<int> indexes) => Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var k = 0; k < indexes.length; k++) ...[
+          if (k > 0) SizedBox(height: dayGap),
+          _dayCard(schedule, indexes[k], density),
+        ],
+      ],
+    );
+
+    final spine = Theme.of(context).colorScheme.outlineVariant;
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 1300),
+        child: Stack(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: page(left)),
+                const SizedBox(width: 32),
+                Expanded(child: page(right)),
+              ],
+            ),
+            // «Корешок» дневника по центру разворота.
+            Positioned.fill(
+              child: Center(
+                child: VerticalDivider(width: 1, thickness: 1, color: spine),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     super.build(context); // для AutomaticKeepAliveClientMixin
     final schedule = widget.schedule ?? const <DaySchedule>[];
     _ensureKeys(schedule.length);
 
-    return PopScope(
-      canPop: !_selectionMode,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _selectionMode) _exitSelection();
-      },
-      child: Stack(
-        children: [
-          Column(
-            children: [
-              _WeekSwitcher(
-                weekStart: widget.weekStart,
-                onPrev: () => _shiftWeek(-1),
-                onNext: () => _shiftWeek(1),
-                onPick: _pickWeek,
-                onShowOverrides: widget.daysWithOverrides.isEmpty
-                    ? null
-                    : _showOverridesSheet,
-                overridesCount: widget.daysWithOverrides.length,
-              ),
-              const HomeworkGroupSwitcher(),
-              if (schedule.isNotEmpty)
-                _DayStrip(
-                  days: schedule,
-                  activeIndex: _activeDayIndex,
-                  onTap: _scrollToDay,
-                  daysWithOverrides: widget.daysWithOverrides,
-                ),
-              const Divider(height: 1),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: widget.onRefresh,
-                  child: AsyncStateView(
-                    isLoading: widget.isLoading,
-                    error: widget.error,
-                    hasData: schedule.isNotEmpty,
-                    contentBuilder: (context) =>
-                        NotificationListener<ScrollNotification>(
-                          onNotification: _onScroll,
-                          child: SingleChildScrollView(
-                            key: _listKey,
-                            controller: _scrollController,
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                for (var i = 0; i < schedule.length; i++) ...[
-                                  if (i > 0) const SizedBox(height: 20),
-                                  KeyedSubtree(
-                                    key: _dayKeys[i],
-                                    child: DayScheduleCard(
-                                      day: schedule[i],
-                                      grades: _gradesLookup,
-                                      attendances: _attendanceLookup,
-                                      bells: widget.bells,
-                                      isSelectionMode: _selectionMode,
-                                      selectedLessonIds: _selectedLessonIds,
-                                      changedLessonIds: widget.changedLessonIds,
-                                      onLessonTap: _selectionMode
-                                          ? (l) => _toggle(schedule[i].date, l)
-                                          : null,
-                                      onLessonLongPress: _selectionMode
-                                          ? null
-                                          : (l) => _enterSelection(
-                                              schedule[i].date,
-                                              l,
-                                            ),
-                                      onLessonsReordered: (orig, next) =>
-                                          _handleReorder(
-                                            schedule[i].date,
-                                            orig,
-                                            next,
-                                          ),
-                                      onDropOnGap: (dragged, gap) =>
-                                          _handleDropOnGap(
-                                            schedule[i].date,
-                                            dragged,
-                                            gap,
-                                          ),
-                                      onDragGlobalY: _handleDragGlobalY,
-                                      onDragEnd: _stopAutoScroll,
-                                    ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = AdaptiveLayout.wideContent(constraints.maxWidth);
+        return CallbackShortcuts(
+          bindings: (wide && widget.isActive)
+              ? _bindings
+              : const <ShortcutActivator, VoidCallback>{},
+          child: Focus(
+            focusNode: _focus,
+            child: PopScope(
+              canPop: !_selectionMode,
+              onPopInvokedWithResult: (didPop, _) {
+                if (!didPop && _selectionMode) _exitSelection();
+              },
+              child: Stack(
+                children: [
+                  Column(
+                    children: [
+                      _WeekSwitcher(
+                        weekStart: widget.weekStart,
+                        onPrev: () => _shiftWeek(-1),
+                        onNext: () => _shiftWeek(1),
+                        onPick: _pickWeek,
+                        onToday: isSameDay(widget.weekStart, currentMonday())
+                            ? null
+                            : _goToCurrentWeek,
+                        onShowOverrides: widget.daysWithOverrides.isEmpty
+                            ? null
+                            : _showOverridesSheet,
+                        overridesCount: widget.daysWithOverrides.length,
+                      ),
+                      // На широком экране группировка ДЗ — в боковой панели, а
+                      // дни не переключаются отдельно: страница — вся неделя.
+                      if (!wide) const HomeworkGroupSwitcher(),
+                      if (schedule.isNotEmpty && !wide)
+                        _DayStrip(
+                          days: schedule,
+                          activeIndex: _activeDayIndex,
+                          onTap: _scrollToDay,
+                          daysWithOverrides: widget.daysWithOverrides,
+                        ),
+                      const Divider(height: 1),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: widget.onRefresh,
+                          child: AsyncStateView(
+                            isLoading: widget.isLoading,
+                            error: widget.error,
+                            hasData: schedule.isNotEmpty,
+                            contentBuilder: (context) =>
+                                _buildScrollBody(schedule, wide),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 16,
+                    child: IgnorePointer(
+                      ignoring: !_selectionMode,
+                      child: AnimatedSlide(
+                        offset: _selectionMode
+                            ? Offset.zero
+                            : const Offset(0, 1.5),
+                        duration: const Duration(milliseconds: 200),
+                        curve: Curves.easeOut,
+                        child: AnimatedOpacity(
+                          opacity: _selectionMode ? 1 : 0,
+                          duration: const Duration(milliseconds: 180),
+                          child: Center(
+                            child: ScheduleSelectionToolbar(
+                              selectedCount: _selectedVisibleLessons().length,
+                              actions: [
+                                if (_canRemoveGap())
+                                  IconButton(
+                                    onPressed: _removeSelectedGap,
+                                    icon: const Icon(Icons.compress),
+                                    tooltip: 'Убрать окно',
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSecondaryContainer,
                                   ),
-                                ],
+                                if (_canBreakPair())
+                                  IconButton(
+                                    onPressed: _breakSelectedPair,
+                                    icon: const Icon(Icons.call_split),
+                                    tooltip: 'Разъединить пару',
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSecondaryContainer,
+                                  ),
+                                if (_canMakePair())
+                                  IconButton(
+                                    onPressed: _makeSelectedPair,
+                                    icon: const Icon(Icons.merge),
+                                    tooltip: 'Объединить в пару',
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSecondaryContainer,
+                                  ),
+                                IconButton(
+                                  onPressed: _confirmDelete,
+                                  icon: const Icon(Icons.delete_outline),
+                                  tooltip: 'Удалить уроки',
+                                  color: Theme.of(context).colorScheme.error,
+                                ),
                               ],
+                              onCancel: _exitSelection,
                             ),
                           ),
                         ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 16,
-            child: IgnorePointer(
-              ignoring: !_selectionMode,
-              child: AnimatedSlide(
-                offset: _selectionMode ? Offset.zero : const Offset(0, 1.5),
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeOut,
-                child: AnimatedOpacity(
-                  opacity: _selectionMode ? 1 : 0,
-                  duration: const Duration(milliseconds: 180),
-                  child: Center(
-                    child: ScheduleSelectionToolbar(
-                      selectedCount: _selectedVisibleLessons().length,
-                      actions: [
-                        if (_canRemoveGap())
-                          IconButton(
-                            onPressed: _removeSelectedGap,
-                            icon: const Icon(Icons.compress),
-                            tooltip: 'Убрать окно',
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSecondaryContainer,
-                          ),
-                        if (_canBreakPair())
-                          IconButton(
-                            onPressed: _breakSelectedPair,
-                            icon: const Icon(Icons.call_split),
-                            tooltip: 'Разъединить пару',
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSecondaryContainer,
-                          ),
-                        if (_canMakePair())
-                          IconButton(
-                            onPressed: _makeSelectedPair,
-                            icon: const Icon(Icons.merge),
-                            tooltip: 'Объединить в пару',
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSecondaryContainer,
-                          ),
-                        IconButton(
-                          onPressed: _confirmDelete,
-                          icon: const Icon(Icons.delete_outline),
-                          tooltip: 'Удалить уроки',
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ],
-                      onCancel: _exitSelection,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1258,6 +1462,9 @@ class _WeekSwitcher extends StatelessWidget {
   final VoidCallback onPrev;
   final VoidCallback onNext;
   final VoidCallback onPick;
+
+  /// null — уже на текущей неделе, кнопку не показываем.
+  final VoidCallback? onToday;
   final VoidCallback? onShowOverrides;
   final int overridesCount;
 
@@ -1266,6 +1473,7 @@ class _WeekSwitcher extends StatelessWidget {
     required this.onPrev,
     required this.onNext,
     required this.onPick,
+    this.onToday,
     this.onShowOverrides,
     this.overridesCount = 0,
   });
@@ -1306,6 +1514,12 @@ class _WeekSwitcher extends StatelessWidget {
               tooltip: 'Следующая неделя',
               onPressed: onNext,
             ),
+            if (onToday != null)
+              IconButton(
+                icon: const Icon(Icons.today),
+                tooltip: 'Текущая неделя (Home)',
+                onPressed: onToday,
+              ),
             if (onShowOverrides != null)
               IconButton(
                 icon: Badge(
