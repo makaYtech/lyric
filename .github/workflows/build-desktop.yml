@@ -43,7 +43,7 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $name = "${{ env.APP_NAME }}-$tag-windows-x64"
-          Compress-Archive -Path "build/windows/x64/runner/Release/*" -DestinationPath "$name.zip"
+          Compress-Archive -Path "build/windows/x64/prod/runner/Release/*" -DestinationPath "$name.zip"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -77,7 +77,7 @@ jobs:
       - name: Pack
         run: |
           name="${{ env.APP_NAME }}-${{ github.ref_name }}-linux-x64"
-          tar -czf "$name.tar.gz" -C build/linux/x64/release/bundle .
+          tar -czf "$name.tar.gz" -C build/linux/x64/prod/release/bundle .
 
       - uses: actions/upload-artifact@v4
         with:
