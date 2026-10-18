@@ -386,11 +386,31 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         );
 
-        return Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: onRight
-              ? [Expanded(child: content), bar]
-              : [bar, Expanded(child: content)],
+        // Контент отступает на ИТОГОВУЮ ширину панели сразу, а сама панель
+        // плавно растёт поверх. Если анимировать ширину в Row, дневник,
+        // оценки и колонки ДЗ пересчитывались бы на каждом кадре анимации —
+        // это и давало лаги при раскрытии меню.
+        final barWidth = expanded
+            ? AppSideBar.expandedWidth
+            : AppSideBar.collapsedWidth;
+        return ColoredBox(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: Stack(
+            children: [
+              Positioned.fill(
+                left: onRight ? 0 : barWidth,
+                right: onRight ? barWidth : 0,
+                child: content,
+              ),
+              Positioned(
+                top: 0,
+                bottom: 0,
+                left: onRight ? null : 0,
+                right: onRight ? 0 : null,
+                child: bar,
+              ),
+            ],
+          ),
         );
       },
     );

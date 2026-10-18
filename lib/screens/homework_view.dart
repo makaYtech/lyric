@@ -47,11 +47,21 @@ class _HomeworkViewState extends State<HomeworkView>
 
   // ── Широкий режим: колонки по дням ────────────────────────────────────
   // Колонки есть только у дней, где реально есть ДЗ (в полосе дат — все дни).
-  final _columnsScroll = ItemScrollController();
+  // Колонки — обычный ListView с фиксированной шириной элемента: позиция
+  // колонки i в центре = i * colW (см. _buildWide), анимация — animateTo.
+  ScrollController? _colController;
+  double _colW = 1;
   final _focus = FocusNode(debugLabel: 'homework');
   List<DateTime> _colDates = const [];
-  int _colsPerView = 1;
-  DateTime? _lastWheelNav;
+  // Листание колесом/тачпадом: накапливаем дельту жеста и делаем ОДИН шаг.
+  double _wheelAccum = 0;
+  DateTime? _wheelLast;
+  DateTime? _wheelStepAt;
+  DateTime? _lastScrollAt;
+  // Перетаскивание (палец, мышь, тачпад-свайп).
+  double _dragAccum = 0;
+  // Чтобы пересобрать центр при изменении ширины окна / числа колонок.
+  (int, int)? _layoutKey;
   Map<DateTime, List<Homework>>? _byDateCache;
   List<Homework>? _byDateCacheForList;
 
@@ -95,6 +105,7 @@ class _HomeworkViewState extends State<HomeworkView>
   void dispose() {
     HomeworkPrefs.groupByDue.removeListener(_onPrefChanged);
     _focus.dispose();
+    _colController?.dispose();
     super.dispose();
   }
 
@@ -212,13 +223,21 @@ class _HomeworkViewState extends State<HomeworkView>
     }
 
     // Широкий режим: выбранный день встаёт в центр области колонок.
-    if (_columnsScroll.isAttached && _colDates.isNotEmpty) {
-      _columnsScroll.scrollTo(
-        // +1: нулевой элемент — левый спейсер (см. _buildWide).
-        index: _selectedColIndex() + 1,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-        alignment: _centerAlignment(),
+    final c = _colController;
+    if (c != null && c.hasClients && _colDates.isNotEmpty) {
+      // Шаги идут подряд (колесо, зажатая стрелка) — анимацию делаем короче,
+      // чтобы она не отставала от прокрутки; одиночный шаг — поплавнее.
+      final now = DateTime.now();
+      final last = _lastScrollAt;
+      _lastScrollAt = now;
+      final chained =
+          last != null &&
+          now.difference(last) < const Duration(milliseconds: 350);
+      c.animateTo(
+        _selectedColIndex() * _colW,
+        duration: Duration(milliseconds: chained ? 220 : 380),
+        // easeOutCubic: быстрый старт и плавное замедление.
+        curve: Curves.easeOutCubic,
       );
     }
   }
@@ -231,11 +250,6 @@ class _HomeworkViewState extends State<HomeworkView>
     final i = _colDates.indexWhere((d) => !d.isBefore(sel));
     return i < 0 ? _colDates.length - 1 : i;
   }
-
-  /// alignment для ScrollablePositionedList: где стоит ЛЕВЫЙ край колонки
-  /// (доля ширины окна). Для центра: 0.5 − (ширина колонки / 2) / ширина.
-  /// Колонок помещается [_colsPerView], значит ширина колонки = 1 / n.
-  double _centerAlignment() => (0.5 - 0.5 / _colsPerView).clamp(0.0, 1.0);
 
   /// Стрелки ←/→: переход к соседнему ДНЮ С ДЗ.
   void _moveSelection(int delta) {
@@ -274,7 +288,11 @@ class _HomeworkViewState extends State<HomeworkView>
 
   void _select(int index) {
     if (index == _selectedIndex) return;
-    _invalidateItemsCache();
+    // Сбрасываем только кэш списка выбранного дня (узкий режим). Кэш «ДЗ по
+    // датам» от выбора не зависит — раньше его пересчитывали на каждом шаге.
+    _itemsCache = null;
+    _itemsCacheForDate = null;
+    _itemsCacheForList = null;
     setState(() => _selectedIndex = index);
     _scrollToSelected();
   }
@@ -322,25 +340,55 @@ class _HomeworkViewState extends State<HomeworkView>
     }
   }
 
-  /// Горизонтальное колесо / тачпад / Shift+колесо — листает по одному дню.
-  /// Вертикальное колесо остаётся за прокруткой самих колонок.
+  /// Горизонтальное колесо / тачпад / Shift+колесо — ОДИН шаг на жест.
+  ///
+  /// Сама прокрутка списка колонок выключена (NeverScrollableScrollPhysics),
+  /// иначе Flutter двигал бы список «вживую» и одновременно запускалась наша
+  /// анимация к центру — они конфликтовали, и экран улетал. Вертикальное
+  /// колесо остаётся за прокруткой карточек внутри колонок.
   void _onPointerSignal(PointerSignalEvent e) {
     if (e is! PointerScrollEvent) return;
     final shift = HardwareKeyboard.instance.isShiftPressed;
     final dx = e.scrollDelta.dx;
     final dy = e.scrollDelta.dy;
     final d = shift ? dy : dx;
-    if (d.abs() < 4) return;
     if (!shift && dx.abs() <= dy.abs()) return;
 
     final now = DateTime.now();
-    final last = _lastWheelNav;
-    if (last != null &&
-        now.difference(last) < const Duration(milliseconds: 250)) {
+    final last = _wheelLast;
+    _wheelLast = now;
+    // Долгая пауза или смена направления — копим заново.
+    if (last == null ||
+        now.difference(last) > const Duration(milliseconds: 300) ||
+        (_wheelAccum != 0 && (d > 0) != (_wheelAccum > 0))) {
+      _wheelAccum = 0;
+    }
+    _wheelAccum += d;
+    if (_wheelAccum.abs() < 40) return;
+
+    // Не чаще одного шага в 110 мс; накопленное не теряется — следующее
+    // событие сделает шаг. Так можно крутить колесо непрерывно и не ждать,
+    // пока долистает до предыдущего дня.
+    final stepAt = _wheelStepAt;
+    if (stepAt != null &&
+        now.difference(stepAt) < const Duration(milliseconds: 110)) {
       return;
     }
-    _lastWheelNav = now;
-    _moveSelection(d > 0 ? 1 : -1);
+    _wheelStepAt = now;
+    final dir = _wheelAccum > 0 ? 1 : -1;
+    _wheelAccum = 0;
+    _moveSelection(dir);
+  }
+
+  /// Перетаскивание влево — следующий день, вправо — предыдущий. Работает для
+  /// сенсорного экрана, мыши и свайпа двумя пальцами по тачпаду.
+  void _onHorizontalDragEnd(DragEndDetails details) {
+    final v = details.primaryVelocity ?? 0;
+    final byDistance = _dragAccum.abs() > 60;
+    final byFling = v.abs() > 500;
+    if (!byDistance && !byFling) return;
+    final leftward = byDistance ? _dragAccum < 0 : v < 0;
+    _moveSelection(leftward ? 1 : -1);
   }
 
   @override
@@ -415,77 +463,100 @@ class _HomeworkViewState extends State<HomeworkView>
   Widget _buildWide(double width) {
     final byDate = _itemsByDate();
     final n = math.max(1, (width / 320).floor());
-    _colsPerView = n;
     final colW = width / n;
     final selCol = _selectedColIndex();
+    _colW = colW;
 
     final canPrev = selCol > 0;
     final canNext = selCol < _colDates.length - 1;
 
+    // Контроллер создаём сразу с нужным смещением — без «мигания» с нуля.
+    final controller = _colController ??= ScrollController(
+      initialScrollOffset: selCol * colW,
+    );
+
+    // Ширина окна или число колонок изменились (в т.ч. при раскрытии боковой
+    // панели): колонка выбранного дня остаётся по центру. Один раз после
+    // кадра, а не на каждом шаге анимации.
+    final layoutKey = (n, width.round());
+    if (_layoutKey != null && _layoutKey != layoutKey) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && controller.hasClients) {
+          controller.jumpTo(_selectedColIndex() * _colW);
+        }
+      });
+    }
+    _layoutKey = layoutKey;
+
     // Полосы дат здесь нет: выбор дня — клик по шапке колонки. Листать можно
-    // стрелками ←/→, кнопками по краям, горизонтальным колесом/тачпадом и
-    // Shift+колесом; Home — к сегодняшнему дню. Переключатель группировки
-    // ДЗ переехал в боковую панель.
+    // стрелками ←/→, кнопками по краям, колесом/тачпадом и свайпом;
+    // Home — к сегодняшнему дню. Переключатель группировки ДЗ переехал в
+    // боковую панель.
     return Listener(
       onPointerSignal: _onPointerSignal,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ScrollablePositionedList.builder(
-            itemScrollController: _columnsScroll,
-            scrollDirection: Axis.horizontal,
-            initialScrollIndex: selCol + 1,
-            initialAlignment: _centerAlignment(),
-            // По краям — пустые спейсеры в (ширина − колонка) / 2: без них
-            // первую и последнюю колонки (а сегодняшний день часто у края,
-            // ведь будущих ДЗ мало) нельзя поставить в центр.
-            itemCount: _colDates.length + 2,
-            itemBuilder: (context, p) {
-              if (p == 0 || p == _colDates.length + 1) {
-                return SizedBox(width: (width - colW) / 2);
-              }
-              final i = p - 1;
-              final d = _colDates[i];
-              return SizedBox(
-                width: colW,
-                child: _DayColumn(
-                  date: d,
-                  items: byDate[d] ?? const [],
-                  selected: i == selCol,
-                  showDivider: i > 0,
-                  onHeaderTap: () {
-                    final idx = _dates.indexOf(d);
-                    if (idx >= 0) _select(idx);
-                  },
+      child: GestureDetector(
+        onHorizontalDragStart: (_) => _dragAccum = 0,
+        onHorizontalDragUpdate: (d) => _dragAccum += d.delta.dx,
+        onHorizontalDragEnd: _onHorizontalDragEnd,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Листаем только шагами (клавиши, кнопки, колесо, свайп): так
+            // выбранный день всегда в центре. Отступы по краям — (ширина −
+            // колонка) / 2: без них первую и последнюю колонки (а
+            // сегодняшний день часто у края) нельзя поставить в центр.
+            ListView.builder(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.symmetric(horizontal: (width - colW) / 2),
+              itemExtent: colW,
+              itemCount: _colDates.length,
+              itemBuilder: (context, i) {
+                final d = _colDates[i];
+                // RepaintBoundary: при листании колонки сдвигаются готовыми
+                // слоями, а не перерисовываются каждый кадр (карточки с
+                // тенями — дорогие).
+                return RepaintBoundary(
+                  child: _DayColumn(
+                    date: d,
+                    items: byDate[d] ?? const [],
+                    selected: i == selCol,
+                    showDivider: i > 0,
+                    onHeaderTap: () {
+                      final idx = _dates.indexOf(d);
+                      if (idx >= 0) _select(idx);
+                    },
+                  ),
+                );
+              },
+            ),
+            Positioned(
+              left: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: _EdgeButton(
+                  icon: Icons.chevron_left,
+                  tooltip: 'Предыдущий день (←)',
+                  onPressed: canPrev ? () => _moveSelection(-1) : null,
                 ),
-              );
-            },
-          ),
-          Positioned(
-            left: 8,
-            top: 0,
-            bottom: 0,
-            child: Center(
-              child: _EdgeButton(
-                icon: Icons.chevron_left,
-                tooltip: 'Предыдущий день (←)',
-                onPressed: canPrev ? () => _moveSelection(-1) : null,
               ),
             ),
-          ),
-          Positioned(
-            right: 8,
-            top: 0,
-            bottom: 0,
-            child: Center(
-              child: _EdgeButton(
-                icon: Icons.chevron_right,
-                tooltip: 'Следующий день (→)',
-                onPressed: canNext ? () => _moveSelection(1) : null,
+            Positioned(
+              right: 8,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: _EdgeButton(
+                  icon: Icons.chevron_right,
+                  tooltip: 'Следующий день (→)',
+                  onPressed: canNext ? () => _moveSelection(1) : null,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
