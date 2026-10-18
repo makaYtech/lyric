@@ -1,6 +1,8 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/layout/adaptive.dart';
 import '../../services/update/update_service.dart';
 import '../shell/adaptive_sheet.dart';
 
@@ -87,6 +89,29 @@ class _UpdateSheetState extends State<UpdateSheet> {
     }
   }
 
+  /// Desktop: ставить самим не умеем — открываем страницу загрузки.
+  Future<void> _openReleasePage() async {
+    final url = UpdateService.instance.releasePageUrl(widget.info);
+    bool ok;
+    try {
+      ok = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      ok = false;
+    }
+    if (!mounted) return;
+    if (ok) {
+      Navigator.of(context).pop(true);
+    } else {
+      setState(() {
+        _phase = _Phase.failed;
+        _error = 'Не удалось открыть браузер. Страница загрузки:\n$url';
+      });
+    }
+  }
+
   void _cancelDownload() {
     _cancelToken?.cancel('user cancelled');
     Navigator.of(context).pop(false);
@@ -154,7 +179,9 @@ class _UpdateSheetState extends State<UpdateSheet> {
       ),
       const SizedBox(height: 12),
       Text(
-        'Версия ${widget.info.version} · ${widget.info.displaySize}',
+        AdaptiveLayout.isDesktopOS
+            ? 'Версия ${widget.info.version}'
+            : 'Версия ${widget.info.version} · ${widget.info.displaySize}',
         style: theme.textTheme.bodyMedium?.copyWith(color: dim),
       ),
       const SizedBox(height: 16),
@@ -190,11 +217,17 @@ class _UpdateSheetState extends State<UpdateSheet> {
           ),
           const SizedBox(width: 12),
           Expanded(
-            child: FilledButton.icon(
-              onPressed: _start,
-              icon: const Icon(Icons.download_rounded, size: 18),
-              label: const Text('Обновить'),
-            ),
+            child: AdaptiveLayout.isDesktopOS
+                ? FilledButton.icon(
+                    onPressed: _openReleasePage,
+                    icon: const Icon(Icons.open_in_new, size: 18),
+                    label: const Text('Открыть страницу'),
+                  )
+                : FilledButton.icon(
+                    onPressed: _start,
+                    icon: const Icon(Icons.download_rounded, size: 18),
+                    label: const Text('Обновить'),
+                  ),
           ),
         ],
       ),
@@ -321,7 +354,7 @@ class _UpdateSheetState extends State<UpdateSheet> {
           const SizedBox(width: 12),
           Expanded(
             child: FilledButton.icon(
-              onPressed: _start,
+              onPressed: AdaptiveLayout.isDesktopOS ? _openReleasePage : _start,
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('Повторить'),
             ),

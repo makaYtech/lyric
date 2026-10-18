@@ -5,6 +5,7 @@ import '../models/subject_grade.dart';
 import '../widgets/common/async_state_view.dart';
 import '../widgets/common/masonry_columns.dart';
 import '../widgets/grades/subject_grade_card.dart';
+import '../widgets/common/stable_layout_builder.dart';
 
 class GradesView extends StatefulWidget {
   final List<SubjectGrade>? grades;
@@ -162,12 +163,14 @@ class _GradesViewState extends State<GradesView> {
 
           final listView = visible.isEmpty
               ? emptyList
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = AdaptiveLayout.wideContent(
-                      constraints.maxWidth,
-                    );
-                    if (!wide) {
+              // Ключ = число колонок (0 — узкий режим): при ресайзе карточки
+              // пересоздаются только когда число колонок реально меняется.
+              : StableLayoutBuilder<int>(
+                  keyOf: (c) => AdaptiveLayout.wideContent(c.maxWidth)
+                      ? (c.maxWidth / 360).floor().clamp(1, 4)
+                      : 0,
+                  builder: (context, constraints, columns) {
+                    if (columns == 0) {
                       return ListView.separated(
                         physics: const AlwaysScrollableScrollPhysics(),
                         padding: const EdgeInsets.all(16),
@@ -181,10 +184,6 @@ class _GradesViewState extends State<GradesView> {
                     }
 
                     // Широкий экран: колонки карточек, ~360 px каждая.
-                    final columns = (constraints.maxWidth / 360).floor().clamp(
-                      1,
-                      4,
-                    );
                     return Scrollbar(
                       controller: _scroll,
                       thumbVisibility: true,

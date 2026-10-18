@@ -20,7 +20,9 @@ import 'login_screen.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../core/settings/update_prefs.dart';
+import '../services/feedback_service.dart';
 import '../services/update/update_service.dart';
+import '../widgets/feedback/feedback_sheet.dart';
 import '../widgets/update/update_sheet.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -230,6 +232,21 @@ class SettingsScreen extends StatelessWidget {
     UpdateChannel.beta => 'Beta · предрелизные',
     UpdateChannel.alpha => 'Alpha · экспериментальные',
   };
+
+  // ── Обратная связь ────────────────────────────────────────────────────
+
+  Future<void> _openFeedback(BuildContext context, FeedbackType type) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final sent = await showFeedbackSheet(context, type);
+    if (!sent) return;
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Спасибо! Отправлено'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 
   // ── Аватарки ──────────────────────────────────────────────────────────
 
@@ -684,6 +701,33 @@ class SettingsScreen extends StatelessWidget {
                     'новую версию',
                   ),
                   onTap: () => _checkUpdates(context),
+                ),
+              ],
+            ),
+
+            // 4.5 Обратная связь
+            _SectionHeader(
+              icon: Icons.feedback_outlined,
+              title: 'Обратная связь',
+            ),
+            _SettingsCard(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.bug_report_outlined),
+                  title: const Text('Сообщить об ошибке'),
+                  subtitle: const Text('Что-то сломалось или работает не так'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _openFeedback(context, FeedbackType.bug),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.lightbulb_outline),
+                  title: const Text('Отзыв или предложение'),
+                  subtitle: const Text(
+                    'Идея, пожелание или впечатление о приложении',
+                  ),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => _openFeedback(context, FeedbackType.request),
                 ),
               ],
             ),

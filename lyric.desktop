@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Лирика
+Comment=Неофициальный клиент ЭПОС
+Exec=lyric
+Icon=lyric
+Categories=Education;
+Terminal=false

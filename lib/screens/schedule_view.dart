@@ -26,6 +26,7 @@ import '../widgets/schedule/lesson_density.dart';
 import '../widgets/schedule/overrides_sheet.dart';
 import '../widgets/schedule/selection_toolbar.dart';
 import '../widgets/shell/adaptive_sheet.dart';
+import '../widgets/common/stable_layout_builder.dart';
 
 class ScheduleView extends StatefulWidget {
   final List<DaySchedule>? schedule;
@@ -1179,12 +1180,10 @@ class _ScheduleViewState extends State<ScheduleView>
     }
     // Широкий экран: подбираем плотность под высоту, чтобы неделя
     // помещалась без прокрутки.
-    return LayoutBuilder(
-      builder: (context, constraints) => _scrollBody(
-        schedule,
-        wide: true,
-        density: _pickDensity(schedule, constraints.maxHeight),
-      ),
+    return StableLayoutBuilder<LessonDensity>(
+      keyOf: (c) => _pickDensity(schedule, c.maxHeight),
+      builder: (context, _, density) =>
+          _scrollBody(schedule, wide: true, density: density),
     );
   }
 
@@ -1329,9 +1328,9 @@ class _ScheduleViewState extends State<ScheduleView>
     final schedule = widget.schedule ?? const <DaySchedule>[];
     _ensureKeys(schedule.length);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = AdaptiveLayout.wideContent(constraints.maxWidth);
+    return StableLayoutBuilder<bool>(
+      keyOf: (c) => AdaptiveLayout.wideContent(c.maxWidth),
+      builder: (context, constraints, wide) {
         return CallbackShortcuts(
           bindings: (wide && widget.isActive)
               ? _bindings

@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:desktop_webview_window/desktop_webview_window.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_desktop_updater/flutter_desktop_updater.dart';
 
 import 'dart:io';
 
@@ -11,7 +14,9 @@ import 'core/auth/epos_session.dart';
 import 'core/auth/session_refresh_service.dart';
 import 'core/settings/layout_prefs.dart';
 import 'core/settings/update_prefs.dart';
+import 'core/theme/platform_style.dart';
 import 'core/theme/theme_controller.dart';
+import 'core/window/desktop_window.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 
@@ -22,18 +27,31 @@ Future<void> main(List<String> args) async {
   // плагин запускает runApp в своей зоне, иначе «Zone mismatch».
   if (runWebViewTitleBarWidget(args)) return;
   WidgetsFlutterBinding.ensureInitialized();
+
   if (Platform.isWindows || Platform.isLinux) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+
+    // ── Автообновление (desktop) ────────────────────────────────────
+    // 1. Настраиваем источник манифеста (вызывается один раз).
+    UpdateConfig().configure(
+      updateJsonUrl: 'https://raw.githubusercontent.com/makaYtech/lyric_apk/main/docs/desktop_update.json',
+    );
+
+    // 2. Запускаем проверку в фоне, чтобы не блокировать старт.
+    // Если у вас есть настройка в UpdatePrefs, можно обернуть в условие.
+    // Например: if (UpdatePrefs.checkOnStartup) { ... }
+    unawaited(UpdateManager().checkForUpdate());
   }
+
+  // Окно: минимальный размер, запомненный размер (только desktop).
+  await DesktopWindow.init();
   final themeController = await ThemeController.load();
   await AuthConfig.load();
   await UpdatePrefs.load();
   await LayoutPrefs.load();
 
   // Пробуем поднять сессию из защищённого хранилища.
-  // Если refresh_token жив — ensureFresh тихо обновит access,
-  // если мёртв — вернёт null, и покажем LoginScreen.
   EposSession? session = await SessionRefreshService.instance.load();
   if (session != null) {
     session = await SessionRefreshService.instance.ensureFresh(session);
@@ -68,9 +86,6 @@ class EposApp extends StatelessWidget {
                   )
                 : LoginScreen(themeController: themeController);
 
-            // Динамические цвета подключаем ТОЛЬКО в режиме «Material».
-            // Для light/dark/system всегда идёт фиксированный seed, чтобы
-            // акцентные цвета не «протекали» в обычные темы.
             final useDynamic =
                 themeController.useMaterialYou && lightDynamic != null;
 
@@ -89,8 +104,26 @@ class EposApp extends StatelessWidget {
             return MaterialApp(
               title: 'ЭПОС',
               themeMode: themeController.mode,
-              theme: ThemeData(useMaterial3: true, colorScheme: lightScheme),
-              darkTheme: ThemeData(useMaterial3: true, colorScheme: darkScheme),
+              theme: applyPlatformStyle(
+                ThemeData(useMaterial3: true, colorScheme: lightScheme),
+              ),
+              darkTheme: applyPlatformStyle(
+                ThemeData(useMaterial3: true, colorScheme: darkScheme),
+              ),
+              // ── UpdateBanner над всем приложением ─────────────────
+              // Показывается автоматически, когда есть обновление.
+              // На мобильных платформах просто возвращаем child.
+              builder: (context, child) {
+                final isDesktop = Platform.isWindows || Platform.isLinux;
+                if (!isDesktop) return child ?? const SizedBox.shrink();
+
+                return Column(
+                  children: [
+                    const UpdateBanner(), // Пакет сам управляет видимостью
+                    Expanded(child: child ?? const SizedBox.shrink()),
+                  ],
+                );
+              },
               home: home,
             );
           },

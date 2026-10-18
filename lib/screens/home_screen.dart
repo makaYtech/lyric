@@ -25,6 +25,7 @@ import '../core/settings/update_prefs.dart';
 import '../services/update/update_service.dart';
 import '../widgets/update/update_sheet.dart';
 import '../widgets/shell/adaptive_sheet.dart';
+import '../widgets/common/stable_layout_builder.dart';
 
 class HomeScreen extends StatefulWidget {
   final EposSession session;
@@ -225,10 +226,12 @@ class _HomeScreenState extends State<HomeScreen> {
       _controller,
     ]);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = AdaptiveLayout.useSideBar(constraints.maxWidth);
-
+    // StableLayoutBuilder: при растягивании окна всё дерево (Scaffold, вкладки)
+    // пересобирается только при смене режима широкий/узкий, а не на каждом
+    // кадре ресайза — это и было главной причиной лагов при изменении окна.
+    return StableLayoutBuilder<bool>(
+      keyOf: (c) => AdaptiveLayout.useSideBar(c.maxWidth),
+      builder: (context, constraints, wide) {
         final scaffold = Scaffold(
           appBar: _HomeAppBar(
             controller: _controller,

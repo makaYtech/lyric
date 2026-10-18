@@ -7,6 +7,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../core/layout/adaptive.dart';
 import '../../core/settings/update_prefs.dart';
 
 /// ────────────────────────────────────────────────────────────────────
@@ -19,12 +20,17 @@ class UpdateInfo {
   final String sha256;
   final String apkName;
 
+  /// Необязательно: прямая ссылка на страницу загрузки (desktop). Если пусто —
+  /// берётся страница релиза v<version> в репозитории.
+  final String pageUrl;
+
   const UpdateInfo({
     required this.version,
     required this.changelog,
     required this.sizeBytes,
     required this.sha256,
     required this.apkName,
+    this.pageUrl = '',
   });
 
   factory UpdateInfo.fromJson(Map<String, dynamic> j) => UpdateInfo(
@@ -33,6 +39,7 @@ class UpdateInfo {
     sizeBytes: (j['size_bytes'] as num?)?.toInt() ?? 0,
     sha256: (j['sha256'] as String? ?? '').trim().toLowerCase(),
     apkName: (j['apk_name'] as String? ?? '').trim(),
+    pageUrl: (j['page_url'] as String? ?? '').trim(),
   );
 
   String get displaySize {
@@ -64,28 +71,28 @@ class UpdateCheck {
   });
 
   const UpdateCheck.upToDate(String current)
-      : this._(result: UpdateCheckResult.upToDate, currentVersion: current);
+    : this._(result: UpdateCheckResult.upToDate, currentVersion: current);
 
   const UpdateCheck.available(UpdateInfo info, String current)
-      : this._(
-    result: UpdateCheckResult.available,
-    info: info,
-    currentVersion: current,
-  );
+    : this._(
+        result: UpdateCheckResult.available,
+        info: info,
+        currentVersion: current,
+      );
 
   const UpdateCheck.networkError(String e, String current)
-      : this._(
-    result: UpdateCheckResult.networkError,
-    error: e,
-    currentVersion: current,
-  );
+    : this._(
+        result: UpdateCheckResult.networkError,
+        error: e,
+        currentVersion: current,
+      );
 
   const UpdateCheck.parseError(String e, String current)
-      : this._(
-    result: UpdateCheckResult.parseError,
-    error: e,
-    currentVersion: current,
-  );
+    : this._(
+        result: UpdateCheckResult.parseError,
+        error: e,
+        currentVersion: current,
+      );
 }
 
 /// ────────────────────────────────────────────────────────────────────
@@ -98,8 +105,7 @@ class UpdateDownloadResult {
   const UpdateDownloadResult._({this.file, this.error});
   const UpdateDownloadResult.success(File f) : this._(file: f);
   const UpdateDownloadResult.failure(String e) : this._(error: e);
-  const UpdateDownloadResult.cancelled()
-      : this._(error: 'Скачивание отменено');
+  const UpdateDownloadResult.cancelled() : this._(error: 'Скачивание отменено');
 }
 
 class UpdateInstallResult {
@@ -137,10 +143,12 @@ class UpdateService {
 
   static const _maxAttempts = 5;
 
-  final _dio = Dio(BaseOptions(
-    connectTimeout: const Duration(seconds: 15),
-    receiveTimeout: const Duration(minutes: 10),
-  ));
+  final _dio = Dio(
+    BaseOptions(
+      connectTimeout: const Duration(seconds: 15),
+      receiveTimeout: const Duration(minutes: 10),
+    ),
+  );
 
   PackageInfo? _cachedPkg;
 
@@ -179,9 +187,11 @@ class UpdateService {
       }
 
       final info = UpdateInfo.fromJson(entry);
+      // На desktop APK не нужен: приложение только сообщает о новой версии
+      // и открывает страницу загрузки, поэтому sha256/apk_name не требуем.
       if (info.version.isEmpty ||
-          info.sha256.isEmpty ||
-          info.apkName.isEmpty) {
+          (!AdaptiveLayout.isDesktopOS &&
+              (info.sha256.isEmpty || info.apkName.isEmpty))) {
         return UpdateCheck.parseError(
           'update.json: не все поля заполнены',
           current,
@@ -193,22 +203,25 @@ class UpdateService {
       }
       return UpdateCheck.available(info, current);
     } on DioException catch (e) {
-      return UpdateCheck.networkError(
-        e.message ?? e.toString(),
-        current,
-      );
+      return UpdateCheck.networkError(e.message ?? e.toString(), current);
     } catch (e) {
       return UpdateCheck.parseError('$e', current);
     }
   }
 
+  /// Страница загрузки для desktop (Windows/Linux): явная `page_url` из
+  /// update.json или страница релиза v<version>.
+  String releasePageUrl(UpdateInfo info) => info.pageUrl.isNotEmpty
+      ? info.pageUrl
+      : 'https://github.com/$_owner/$_repo/releases/tag/v${info.version}';
+
   /// Скачивание и верификация. Пробует до 5 раз.
   /// [cancelToken] — чтобы прервать, если пользователь закрыл шторку.
   Future<UpdateDownloadResult> downloadAndVerify(
-      UpdateInfo info, {
-        void Function(double progress)? onProgress,
-        CancelToken? cancelToken,
-      }) async {
+    UpdateInfo info, {
+    void Function(double progress)? onProgress,
+    CancelToken? cancelToken,
+  }) async {
     final dir = await getTemporaryDirectory();
     final updatesDir = Directory('${dir.path}/updates');
     if (!await updatesDir.exists()) {
@@ -231,9 +244,7 @@ class UpdateService {
           '$_releaseBase/v${info.version}/${info.apkName}',
           dest.path,
           cancelToken: cancelToken,
-          options: Options(
-            headers: {'Accept': 'application/octet-stream'},
-          ),
+          options: Options(headers: {'Accept': 'application/octet-stream'}),
           onReceiveProgress: (received, total) {
             if (total > 0) onProgress?.call(received / total);
           },
@@ -241,7 +252,8 @@ class UpdateService {
 
         final actual = await _sha256OfFile(dest);
         if (actual.toLowerCase() != info.sha256.toLowerCase()) {
-          lastError = 'SHA-256 не совпал '
+          lastError =
+              'SHA-256 не совпал '
               '(получено ${actual.substring(0, 12)}…, '
               'ожидалось ${info.sha256.substring(0, 12)}…)';
           await dest.delete();
@@ -284,9 +296,7 @@ class UpdateService {
       );
       if (res.type != ResultType.done) {
         return UpdateInstallResult.failure(
-          res.message.isEmpty
-              ? 'Система не открыла установщик'
-              : res.message,
+          res.message.isEmpty ? 'Система не открыла установщик' : res.message,
         );
       }
       return const UpdateInstallResult.success();
@@ -334,12 +344,7 @@ class UpdateService {
     final parts = numeric.split('.');
     int at(int i) => i < parts.length ? int.tryParse(parts[i]) ?? 0 : 0;
 
-    return _Version(
-      major: at(0),
-      minor: at(1),
-      patch: at(2),
-      pre: pre,
-    );
+    return _Version(major: at(0), minor: at(1), patch: at(2), pre: pre);
   }
 }
 

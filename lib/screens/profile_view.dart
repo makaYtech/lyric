@@ -9,6 +9,7 @@ import '../widgets/common/masonry_columns.dart';
 import '../widgets/profile/profile_card.dart';
 import '../widgets/profile/teacher_card.dart';
 import '../widgets/profile/teachers_section.dart';
+import '../widgets/common/stable_layout_builder.dart';
 
 class ProfileView extends StatelessWidget {
   final StudentProfile? profile;
@@ -49,14 +50,21 @@ class ProfileView extends StatelessWidget {
           valueListenable: TeacherPrefs.onlyStudentTeachers,
           builder: (context, onlyMine, _) {
             final visible = _visibleTeachers(onlyMine);
-            return LayoutBuilder(
-              builder: (context, constraints) {
-                if (AdaptiveLayout.wideContent(constraints.maxWidth)) {
+            // Ключ = число колонок учителей (0 — узкий режим): при ресайзе
+            // дерево пересобирается только когда оно реально меняется.
+            return StableLayoutBuilder<int>(
+              keyOf: (c) => AdaptiveLayout.wideContent(c.maxWidth)
+                  ? ((c.maxWidth - _WideProfileState._leftWidth - 33) / 340)
+                        .floor()
+                        .clamp(1, 3)
+                  : 0,
+              builder: (context, constraints, columns) {
+                if (columns > 0) {
                   return _WideProfile(
                     profile: profile!,
                     avatarKey: studentAvatarKey,
                     teachers: visible,
-                    width: constraints.maxWidth,
+                    columns: columns,
                   );
                 }
                 return ListView(
@@ -96,13 +104,13 @@ class _WideProfile extends StatefulWidget {
   final StudentProfile profile;
   final String? avatarKey;
   final List<Teacher>? teachers;
-  final double width;
+  final int columns;
 
   const _WideProfile({
     required this.profile,
     required this.avatarKey,
     required this.teachers,
-    required this.width,
+    required this.columns,
   });
 
   @override
@@ -126,9 +134,6 @@ class _WideProfileState extends State<_WideProfile> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final teachers = widget.teachers ?? const <Teacher>[];
-
-    final rightWidth = widget.width - _leftWidth - 1 - 32;
-    final columns = (rightWidth / 340).floor().clamp(1, 3);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -174,7 +179,7 @@ class _WideProfileState extends State<_WideProfile> {
                         const Divider(height: 1),
                         const SizedBox(height: 12),
                         MasonryColumns(
-                          columns: columns,
+                          columns: widget.columns,
                           spacing: 10,
                           children: [
                             for (final t in teachers) TeacherCard(teacher: t),

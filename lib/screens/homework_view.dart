@@ -14,6 +14,7 @@ import '../models/homework.dart';
 import '../widgets/common/async_state_view.dart';
 import '../widgets/homework/homework_card.dart';
 import '../widgets/homework/homework_group_switcher.dart';
+import '../widgets/common/stable_layout_builder.dart';
 
 class HomeworkView extends StatefulWidget {
   final List<Homework>? homeworks;
@@ -49,8 +50,8 @@ class _HomeworkViewState extends State<HomeworkView>
   // Колонки есть только у дней, где реально есть ДЗ (в полосе дат — все дни).
   // Колонки — обычный ListView с фиксированной шириной элемента: позиция
   // колонки i в центре = i * colW (см. _buildWide), анимация — animateTo.
-  ScrollController? _colController;
-  double _colW = 1;
+  PageController? _colController;
+  int _colsN = 0;
   final _focus = FocusNode(debugLabel: 'homework');
   List<DateTime> _colDates = const [];
   // Листание колесом/тачпадом: накапливаем дельту жеста и делаем ОДИН шаг.
@@ -60,8 +61,6 @@ class _HomeworkViewState extends State<HomeworkView>
   DateTime? _lastScrollAt;
   // Перетаскивание (палец, мышь, тачпад-свайп).
   double _dragAccum = 0;
-  // Чтобы пересобрать центр при изменении ширины окна / числа колонок.
-  (int, int)? _layoutKey;
   Map<DateTime, List<Homework>>? _byDateCache;
   List<Homework>? _byDateCacheForList;
 
@@ -233,8 +232,8 @@ class _HomeworkViewState extends State<HomeworkView>
       final chained =
           last != null &&
           now.difference(last) < const Duration(milliseconds: 350);
-      c.animateTo(
-        _selectedColIndex() * _colW,
+      c.animateToPage(
+        _selectedColIndex(),
         duration: Duration(milliseconds: chained ? 220 : 380),
         // easeOutCubic: быстрый старт и плавное замедление.
         curve: Curves.easeOutCubic,
@@ -395,16 +394,21 @@ class _HomeworkViewState extends State<HomeworkView>
   Widget build(BuildContext context) {
     super.build(context);
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final wide = AdaptiveLayout.wideContent(constraints.maxWidth);
+    // Ключ = (широкий?, колонок в кадре). При ресайзе окна дерево
+    // пересобирается только когда это реально меняется.
+    return StableLayoutBuilder<(bool, int)>(
+      keyOf: (c) {
+        final w = AdaptiveLayout.wideContent(c.maxWidth);
+        return (w, w ? math.max(1, (c.maxWidth / 320).floor()) : 0);
+      },
+      builder: (context, constraints, key) {
+        final (wide, cols) = key;
 
         final body = AsyncStateView(
           isLoading: widget.isLoading,
           error: widget.error,
           hasData: _dates.isNotEmpty,
-          contentBuilder: (context) =>
-              wide ? _buildWide(constraints.maxWidth) : _buildNarrow(),
+          contentBuilder: (context) => wide ? _buildWide(cols) : _buildNarrow(),
         );
 
         return CallbackShortcuts(
@@ -460,33 +464,31 @@ class _HomeworkViewState extends State<HomeworkView>
   /// Широкий режим: полоса дат сверху + колонки по дням. Сколько колонок
   /// влезет (минимум ~320 px каждая), столько и показываем; выбранный день
   /// встаёт в центр.
-  Widget _buildWide(double width) {
+  Widget _buildWide(int n) {
     final byDate = _itemsByDate();
-    final n = math.max(1, (width / 320).floor());
-    final colW = width / n;
     final selCol = _selectedColIndex();
-    _colW = colW;
 
     final canPrev = selCol > 0;
     final canNext = selCol < _colDates.length - 1;
 
-    // Контроллер создаём сразу с нужным смещением — без «мигания» с нуля.
-    final controller = _colController ??= ScrollController(
-      initialScrollOffset: selCol * colW,
-    );
-
-    // Ширина окна или число колонок изменились (в т.ч. при раскрытии боковой
-    // панели): колонка выбранного дня остаётся по центру. Один раз после
-    // кадра, а не на каждом шаге анимации.
-    final layoutKey = (n, width.round());
-    if (_layoutKey != null && _layoutKey != layoutKey) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && controller.hasClients) {
-          controller.jumpTo(_selectedColIndex() * _colW);
-        }
-      });
+    // PageView с viewportFraction = 1/n: каждая страница — одна колонка, а
+    // выбранная всегда по центру, в том числе при растягивании окна (он сам
+    // держит страницу, а не пиксельное смещение). Контроллер пересоздаём
+    // только при смене числа колонок.
+    if (_colController == null || _colsN != n) {
+      final old = _colController;
+      if (old != null) {
+        // Старый контроллер ещё привязан к текущему PageView — освободим
+        // после кадра.
+        WidgetsBinding.instance.addPostFrameCallback((_) => old.dispose());
+      }
+      _colsN = n;
+      _colController = PageController(
+        viewportFraction: 1 / n,
+        initialPage: selCol,
+      );
     }
-    _layoutKey = layoutKey;
+    final controller = _colController!;
 
     // Полосы дат здесь нет: выбор дня — клик по шапке колонки. Листать можно
     // стрелками ←/→, кнопками по краям, колесом/тачпадом и свайпом;
@@ -502,21 +504,19 @@ class _HomeworkViewState extends State<HomeworkView>
           fit: StackFit.expand,
           children: [
             // Листаем только шагами (клавиши, кнопки, колесо, свайп): так
-            // выбранный день всегда в центре. Отступы по краям — (ширина −
-            // колонка) / 2: без них первую и последнюю колонки (а
-            // сегодняшний день часто у края) нельзя поставить в центр.
-            ListView.builder(
+            // выбранный день всегда в центре. padEnds: первую и последнюю
+            // колонки (сегодняшний день часто у края) тоже можно поставить
+            // в центр.
+            PageView.builder(
+              key: ValueKey(n),
               controller: controller,
-              scrollDirection: Axis.horizontal,
               physics: const NeverScrollableScrollPhysics(),
-              padding: EdgeInsets.symmetric(horizontal: (width - colW) / 2),
-              itemExtent: colW,
+              padEnds: true,
               itemCount: _colDates.length,
               itemBuilder: (context, i) {
                 final d = _colDates[i];
                 // RepaintBoundary: при листании колонки сдвигаются готовыми
-                // слоями, а не перерисовываются каждый кадр (карточки с
-                // тенями — дорогие).
+                // слоями, а не перерисовываются каждый кадр.
                 return RepaintBoundary(
                   child: _DayColumn(
                     date: d,
