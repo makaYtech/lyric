@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/platform_style.dart';
+import '../../core/window/mica.dart';
 import '../common/person_avatar.dart';
 
 /// Вкладка боковой панели.
@@ -112,18 +114,22 @@ class AppSideBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final win = AppPlatformStyle.current == AppPlatformStyle.windows;
     final edge = BorderSide(color: cs.outlineVariant);
 
     return Material(
-      color: cs.surfaceContainer,
+      // Windows 11: панель прозрачная, под ней видна Mica (как NavigationView).
+      color: win && Mica.enabled ? Colors.transparent : cs.surfaceContainer,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
         width: expanded ? expandedWidth : collapsedWidth,
         // foreground — чтобы граница не съедала ширину и иконки не уезжали.
-        foregroundDecoration: BoxDecoration(
-          border: onRight ? Border(left: edge) : Border(right: edge),
-        ),
+        foregroundDecoration: win && Mica.enabled
+            ? null
+            : BoxDecoration(
+                border: onRight ? Border(left: edge) : Border(right: edge),
+              ),
         child: SafeArea(
           child: ClipRect(
             child: LayoutBuilder(
@@ -366,46 +372,76 @@ class _Tile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final win = AppPlatformStyle.current == AppPlatformStyle.windows;
     final fg = selected
         ? cs.onSecondaryContainer
         : (color ?? cs.onSurfaceVariant);
 
-    final tile = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: Material(
-        color: selected ? cs.secondaryContainer : Colors.transparent,
-        shape: const StadiumBorder(),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: onTap,
-          child: SizedBox(
-            height: 48,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  IconTheme.merge(
-                    data: IconThemeData(color: fg, size: 24),
-                    child: SizedBox(width: 24, child: Center(child: icon)),
-                  ),
-                  if (showLabel) ...[
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        softWrap: false,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.labelLarge?.copyWith(color: fg),
-                      ),
+    // Windows: прямоугольник с радиусом 4 и 3-пиксельная «пилюля» акцента
+    // слева у выбранного пункта — как в NavigationView у «Параметров».
+    final ShapeBorder shape = win
+        ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))
+        : const StadiumBorder();
+
+    final body = Material(
+      color: selected ? cs.secondaryContainer : Colors.transparent,
+      shape: shape,
+      child: InkWell(
+        customBorder: shape,
+        onTap: onTap,
+        child: SizedBox(
+          height: win ? 40 : 48,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                IconTheme.merge(
+                  data: IconThemeData(color: fg, size: win ? 20 : 24),
+                  child: SizedBox(width: 24, child: Center(child: icon)),
+                ),
+                if (showLabel) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      softWrap: false,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(color: fg),
                     ),
-                  ],
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
         ),
       ),
+    );
+
+    final tile = Padding(
+      padding: EdgeInsets.symmetric(horizontal: 12, vertical: win ? 1 : 2),
+      child: win && selected
+          ? Stack(
+              fit: StackFit.passthrough,
+              children: [
+                body,
+                Positioned(
+                  left: 0,
+                  top: 12,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: 3,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        color: cs.primary,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            )
+          : body,
     );
 
     // Когда подписей нет — подсказка при наведении вместо них.

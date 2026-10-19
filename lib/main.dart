@@ -17,6 +17,7 @@ import 'core/settings/update_prefs.dart';
 import 'core/theme/platform_style.dart';
 import 'core/theme/theme_controller.dart';
 import 'core/window/desktop_window.dart';
+import 'core/window/mica.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 
@@ -43,6 +44,9 @@ Future<void> main(List<String> args) async {
     // Например: if (UpdatePrefs.checkOnStartup) { ... }
     unawaited(UpdateManager().checkForUpdate());
   }
+
+  // Mica (Windows 11): до DesktopWindow.init().
+  await Mica.init();
 
   // Окно: минимальный размер, запомненный размер (только desktop).
   await DesktopWindow.init();
@@ -114,14 +118,18 @@ class EposApp extends StatelessWidget {
               // Показывается автоматически, когда есть обновление.
               // На мобильных платформах просто возвращаем child.
               builder: (context, child) {
+                final body = child ?? const SizedBox.shrink();
                 final isDesktop = Platform.isWindows || Platform.isLinux;
-                if (!isDesktop) return child ?? const SizedBox.shrink();
 
-                return Column(
-                  children: [
-                    const UpdateBanner(), // Пакет сам управляет видимостью
-                    Expanded(child: child ?? const SizedBox.shrink()),
-                  ],
+                return MicaScope(
+                  child: isDesktop
+                      ? Column(
+                          children: [
+                            const UpdateBanner(), // Пакет сам управляет видимостью
+                            Expanded(child: body),
+                          ],
+                        )
+                      : body,
                 );
               },
               home: home,
