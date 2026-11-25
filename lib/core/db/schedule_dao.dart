@@ -2,30 +2,28 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-import '../../models/day_schedule.dart';
-import '../../models/homework_attachment.dart';
-import '../../models/lesson.dart';
+import '../../domain/schedule/day_schedule.dart';
+import '../../domain/homework/homework_attachment.dart';
+import '../../domain/schedule/lesson.dart';
 import '../util/date_time.dart';
-import 'app_database.dart';
+import './app_database.dart';
+import './dao_utils.dart';
 
-/// Всё, что связано с расписанием и ДЗ, живёт здесь одной строкой на урок.
-/// Никакой истории — расписание переносится/меняется, старое значение
-/// никому не интересно, просто перезаписываем по id урока.
+/// Расписание и ДЗ: одна строка на урок, без истории — просто
+/// перезаписываем по id урока.
 class ScheduleDao {
   Future<void> saveWeek(int yearId, List<DaySchedule> days) async {
     final db = await AppDatabase.instance.database;
     final now = DateTime.now().toIso8601String();
 
-    // Находим границы недели по первому дню. Если список пустой —
-    // сохранять нечего, выходим.
+    // Пустой список сохранять нечего.
     if (days.isEmpty) return;
     final monday = days.first.date;
     final sunday = monday.add(const Duration(days: 6));
 
     await db.transaction((txn) async {
-      // Перезаписываем неделю целиком: если на сервере урок отменили и
-      // он пропал из ответа — в БД он тоже должен пропасть, иначе
-      // оффлайн-режим покажет фантом. См. MarksDao.saveWeek — там то же.
+      // Перезаписываем неделю целиком: урок, пропавший из ответа сервера,
+      // должен пропасть и в БД, иначе оффлайн покажет фантом.
       await txn.delete(
         AppDatabase.tableLessons,
         where: 'year_id = ? AND date BETWEEN ? AND ?',
@@ -63,8 +61,8 @@ class ScheduleDao {
     });
   }
 
-  /// Отдаёт сохранённые уроки за неделю (monday..monday+6), уже
-  /// собранными по дням — тем же форматом, что и свежий ответ API.
+  /// Уроки за неделю (monday..monday+6), собранные по дням — тем же
+  /// форматом, что и свежий ответ API.
   Future<List<DaySchedule>> loadWeek(int yearId, DateTime monday) async {
     final db = await AppDatabase.instance.database;
     final sunday = monday.add(const Duration(days: 6));
@@ -91,7 +89,9 @@ class ScheduleDao {
               room: row['room'] as String?,
               homeworks: Lesson.decodeHomeworks(row['homework'] as String?),
               homeworkIds: _decodeIds(row['homework_ids_json']),
-              attachments: _decodeAttachments(row['attachments_json']),
+              attachments: HomeworkAttachment.listFromJsonString(
+                row['attachments_json'],
+              ),
               studentHomeworkIds: _decodeIds(row['student_homework_ids_json']),
               isEc: (row['is_ec'] as int? ?? 0) == 1,
             ),
@@ -109,16 +109,12 @@ class ScheduleDao {
   Future<DateTime?> lastUpdated(int yearId, DateTime monday) async {
     final db = await AppDatabase.instance.database;
     final sunday = monday.add(const Duration(days: 6));
-    final rows = await db.query(
+    return lastUpdatedAt(
+      db,
       AppDatabase.tableLessons,
-      columns: ['updated_at'],
       where: 'year_id = ? AND date BETWEEN ? AND ?',
       whereArgs: [yearId, isoDate(monday), isoDate(sunday)],
-      orderBy: 'updated_at DESC',
-      limit: 1,
     );
-    if (rows.isEmpty) return null;
-    return DateTime.tryParse(rows.first['updated_at'] as String);
   }
 
   static List<int> _decodeIds(Object? raw) {
@@ -127,19 +123,6 @@ class ScheduleDao {
       return (jsonDecode(raw) as List)
           .whereType<num>()
           .map((e) => e.toInt())
-          .toList();
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  static List<HomeworkAttachment> _decodeAttachments(Object? raw) {
-    if (raw is! String || raw.isEmpty) return const [];
-    try {
-      return (jsonDecode(raw) as List)
-          .whereType<Map<String, dynamic>>()
-          .map(HomeworkAttachment.fromJson)
-          .where((a) => a.url.isNotEmpty)
           .toList();
     } catch (_) {
       return const [];

@@ -2,12 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/layout/adaptive.dart';
 
-/// Унифицированное отображение состояния "данных ещё нет / ошибка / контент".
-/// Используется на всех экранах вместо самодельных if/else в build() —
-/// так все экраны выглядят и ведут себя одинаково в этих трёх состояниях.
-///
-/// Состояния «ошибка» и «нет данных» рендерятся в скроллируемом контейнере,
-/// чтобы работал pull-to-refresh, даже когда показывать нечего.
+/// Унифицированное состояние «нет данных / ошибка / контент». Ошибка и
+/// пустота рендерятся в скролле, чтобы работал pull-to-refresh.
 class AsyncStateView extends StatelessWidget {
   final bool isLoading;
   final String? error;
@@ -53,9 +49,8 @@ class AsyncStateView extends StatelessWidget {
   }
 }
 
-/// Однокадровый скроллируемый контейнер высотой с родителя, внутри —
-/// центр с [child]. Нужен, чтобы RefreshIndicator мог поймать
-/// pull-to-refresh даже на экране, где нечего показывать.
+/// Скроллируемый контейнер высотой с родителя — чтобы RefreshIndicator
+/// ловил pull-to-refresh даже на пустом экране.
 class _FillScrollable extends StatelessWidget {
   final Widget child;
   const _FillScrollable({required this.child});

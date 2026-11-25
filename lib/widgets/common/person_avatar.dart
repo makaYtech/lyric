@@ -6,11 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/settings/avatar_storage.dart';
 import '../../core/util/names.dart';
 
-/// Круглая аватарка. Путь к картинке читается синхронно из
-/// [AvatarStorage.cachedPath] внутри [ValueListenableBuilder] —
-/// как только AvatarStorage отдаст путь (или он там уже есть),
-/// виджет сам перерисуется. Никаких ручных setState из async-цепочки,
-/// из-за которых была гонка на первом старте.
+/// Круглая аватарка. Путь читается синхронно из [AvatarStorage.cachedPath]
+/// внутри [ValueListenableBuilder] — виджет сам перерисуется, когда путь
+/// появится, без ручных setState из async-цепочки.
 class PersonAvatar extends StatefulWidget {
   final String fullName;
   final double radius;
@@ -46,9 +44,7 @@ class _PersonAvatarState extends State<PersonAvatar> {
     }
   }
 
-  /// Триггерит загрузку из prefs. Сам ничего не делает с UI — за это
-  /// отвечает ValueListenableBuilder ниже. Если ключ уже в памяти,
-  /// вызов дешёвый и ничего не произойдёт.
+  /// Триггерит загрузку из prefs; UI обновляет ValueListenableBuilder.
   void _ensureLoaded() {
     final key = widget.avatarKey;
     if (key == null) return;
@@ -127,8 +123,7 @@ class _PersonAvatarState extends State<PersonAvatar> {
     if (hasLocal) {
       imageWidget = Image(
         image: FileImage(File(localPath)),
-        // Ключ по пути: при смене картинки Flutter пересоздаст элемент
-        // и не подсунет старый кадр из кэша.
+        // Ключ по пути: при смене картинки Flutter не подсунет старый кадр.
         key: ValueKey(localPath),
         fit: BoxFit.cover,
         gaplessPlayback: true,

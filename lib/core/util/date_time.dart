@@ -25,6 +25,16 @@ String dotDate(DateTime d) =>
 /// "HH:mm" из пары чисел. "09:05", а не "9:5".
 String hhmm(int h, int m) => '${_two(h)}:${_two(m)}';
 
+/// "HH:mm" → минуты от полуночи. null — если строка битая.
+int? minutesFromHhmm(String value) {
+  final parts = value.split(':');
+  if (parts.length != 2) return null;
+  final h = int.tryParse(parts[0]);
+  final m = int.tryParse(parts[1]);
+  if (h == null || m == null) return null;
+  return h * 60 + m;
+}
+
 String _two(int n) => n.toString().padLeft(2, '0');
 
 /// Дата из списка, как её отдаёт jersey/api: [y, m, d] или [y, m, d, h, mi, s].

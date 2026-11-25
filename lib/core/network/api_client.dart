@@ -1,23 +1,19 @@
 import 'dart:convert';
 
-import '../../services/auth_service.dart';
-import '../../services/epos_response_guard.dart';
-import '../../services/retry.dart';
-import '../../services/session_expired_exception.dart';
+import '../../data/services/epos/auth_service.dart';
+import '../../data/services/epos/epos_response_guard.dart';
+import '../../data/services/epos/retry.dart';
+import '../../data/services/epos/session_expired_exception.dart';
 import '../auth/auth_coordinator.dart';
 import '../auth/session_notifier.dart';
-import 'epos_http_client.dart';
+import './epos_http_client.dart';
 
-/// Единая точка ВСЕХ запросов к ЭПОСу.
+/// Единая точка всех запросов к ЭПОСу.
 ///
-/// Основной механизм аутентификации — cookies (aid, auth_token,
-/// long_token, profile_id, is_auth, from_sudir, RSESSION, waf_cookie,
-/// SERVERID). Заголовки Auth-Token/Profile-Id — fallback для
-/// legacy-сессий, где cookies ещё не собраны.
-///
-/// Реакция на 401/«сессия истекла»: просим AuthCoordinator обновиться
-/// и повторяем запрос. Если он ответил networkError — это НЕ повод
-/// требовать вход заново, просто всплывает обычная ошибка обновления.
+/// Основная аутентификация — cookies; заголовки Auth-Token/Profile-Id —
+/// fallback для legacy-сессий без cookie-jar. На 401 просит
+/// AuthCoordinator обновиться и повторяет запрос; networkError при
+/// обновлении не означает, что нужен повторный вход.
 class ApiClient {
   static const _requestTimeout = Duration(seconds: 25);
   static const _userAgent = 'okhttp/4.12.0';
@@ -50,6 +46,24 @@ class ApiClient {
       if (silent) return const [];
       rethrow;
     }
+  }
+
+  /// Список объектов, разобранный в модели. Элементы другого типа
+  /// пропускаются — как и при ручном `whereType`.
+  Future<List<T>> getTyped<T>(
+    Uri url,
+    EposTokens tokens, {
+    int attempts = 3,
+    bool silent = false,
+    required T Function(Map<String, dynamic>) parse,
+  }) async {
+    final decoded = await getList(
+      url,
+      tokens,
+      attempts: attempts,
+      silent: silent,
+    );
+    return decoded.whereType<Map<String, dynamic>>().map(parse).toList();
   }
 
   Future<dynamic> _request(

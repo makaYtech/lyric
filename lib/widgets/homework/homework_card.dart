@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../models/homework.dart';
+import '../../domain/homework/homework.dart';
 import '../common/attachment_button.dart';
 import '../common/my_work_section.dart';
-import 'homework_details_sheet.dart';
+import './homework_details_sheet.dart';
 import '../shell/adaptive_sheet.dart';
 
 class HomeworkCard extends StatelessWidget {

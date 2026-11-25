@@ -2,14 +2,9 @@ import 'package:flutter/foundation.dart';
 
 import '../cache/cache_service.dart';
 
-/// Настройки отображения карточки учителя в профиле.
-///
-/// Лимиты «сколько показывать до кнопки "Ещё N"» можно менять в
-/// настройках (Профиль → Учителя). Значение [allValue] (-1) означает
-/// «показать всё без ограничения».
-///
-/// ValueNotifier — чтобы карточки учителей сразу перерисовывались при
-/// изменении настроек, без перезахода на вкладку.
+/// Настройки карточки учителя. Лимиты «сколько показывать до "Ещё N"»;
+/// [allValue] (-1) — показать всё. ValueNotifier перерисовывает карточки
+/// без перезахода на вкладку.
 class TeacherPrefs {
   TeacherPrefs._();
 
@@ -25,22 +20,22 @@ class TeacherPrefs {
 
   static final CacheService _cache = CacheService();
 
-  static final ValueNotifier<int> subjectsLimit =
-  ValueNotifier<int>(defaultSubjectsLimit);
+  static final ValueNotifier<int> subjectsLimit = ValueNotifier<int>(
+    defaultSubjectsLimit,
+  );
 
-  static final ValueNotifier<int> roomsLimit =
-  ValueNotifier<int>(defaultRoomsLimit);
+  static final ValueNotifier<int> roomsLimit = ValueNotifier<int>(
+    defaultRoomsLimit,
+  );
 
-  /// Показывать все исторические кабинеты учителя, а не только те,
-  /// где он ответственный. По умолчанию — выключено: у ЭПОСа в
+  /// Все исторические кабинеты, а не только ответственные: у ЭПОСа в
   /// teacher_profiles.rooms[] лежит мусорный хвост за много лет.
-  static final ValueNotifier<bool> showOldRooms =
-  ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> showOldRooms = ValueNotifier<bool>(false);
 
-  /// Показывать только учителей, которые ведут уроки у текущего
-  /// ученика. Список id строится контроллером из расписания.
-  static final ValueNotifier<bool> onlyStudentTeachers =
-  ValueNotifier<bool>(false);
+  /// Только учителя, ведущие уроки у текущего ученика.
+  static final ValueNotifier<bool> onlyStudentTeachers = ValueNotifier<bool>(
+    false,
+  );
 
   static Future<void> load() async {
     final s = await _cache.loadInt(_subjectsKey);

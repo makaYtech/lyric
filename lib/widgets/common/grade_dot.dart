@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../shell/adaptive_sheet.dart';
+import './dot_base.dart';
 
 class GradeDot extends StatelessWidget {
   final int value;
@@ -24,23 +25,12 @@ class GradeDot extends StatelessWidget {
     final w = weight ?? 1;
     final hasWeight = w > 1;
 
-    final dot = Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        shape: BoxShape.circle,
-        border: Border.all(color: color, width: hasWeight ? 1.5 : 1),
-      ),
-      child: hasWeight ? _weightedContent(color, w) : _plainContent(color),
-    );
-
-    if (onTap == null) return dot;
-    return InkWell(
+    return DotBase(
+      color: color,
+      size: size,
+      borderWidth: hasWeight ? 1.5 : 1,
       onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: dot,
+      child: hasWeight ? _weightedContent(color, w) : _plainContent(color),
     );
   }
 

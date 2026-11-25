@@ -13,8 +13,7 @@ class SchedulePrefs {
   static const _autoScrollToTodayKey = 'schedule_auto_scroll_to_today';
   static final CacheService _cache = CacheService();
 
-  /// Минимальная длина разрыва между уроками, при которой он ещё
-  /// считается обычной переменой и окно не рисуется.
+  /// Минимальный разрыв, который ещё считается переменой, а не окном.
   static const defaultGapThresholdMin = 20;
 
   /// Допустимые значения для UI-выбора порога.
@@ -22,8 +21,7 @@ class SchedulePrefs {
 
   static final ValueNotifier<bool> mergePairs = ValueNotifier<bool>(false);
 
-  /// Показывать ли ручные правки расписания. Если false — расписание
-  /// рисуется строго по данным сервера.
+  /// Ручные правки расписания; false — строго данные сервера.
   static final ValueNotifier<bool> showOverrides = ValueNotifier<bool>(true);
 
   /// Рисовать ли карточку «Окно» между уроками с большим разрывом.
@@ -34,9 +32,8 @@ class SchedulePrefs {
     defaultGapThresholdMin,
   );
 
-  /// При первом заходе на вкладку «Расписание» прокручивать к текущему
-  /// дню. Срабатывает только один раз за жизнь экрана — при повторных
-  /// переключениях вкладки позиция сохраняется.
+  /// Прокрутить к текущему дню при первом заходе на вкладку; повторные
+  /// переключения сохраняют позицию.
   static final ValueNotifier<bool> autoScrollToToday = ValueNotifier<bool>(
     true,
   );

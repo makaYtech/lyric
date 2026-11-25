@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../models/lesson.dart';
-import 'lesson_density.dart';
+import '../../domain/schedule/lesson.dart';
+import './lesson_density.dart';
 
 /// Компактная карточка окна между уроками.
 class GapCard extends StatelessWidget {
@@ -9,8 +9,7 @@ class GapCard extends StatelessWidget {
   final bool isSelectionMode;
   final bool isSelected;
 
-  /// Подсветка во время drag: урок наведён на это окно и его можно
-  /// бросить сюда. Красим в цвет обводки primary.
+  /// Подсветка во время drag: урок наведён на окно, сюда можно бросить.
   final bool highlighted;
 
   final VoidCallback? onTap;

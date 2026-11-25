@@ -6,11 +6,9 @@ import 'package:window_manager/window_manager.dart';
 
 import '../layout/adaptive.dart';
 
-/// Окно на desktop: минимальный размер, запоминание размера между запусками.
-///
-/// Позицию окна не сохраняем: на Wayland приложение не может ею управлять
-/// (композитор решает сам), а на X11/Windows запоминание позиции часто
-/// заканчивается окном за краем экрана после смены мониторов.
+/// Окно на desktop: минимальный размер и запоминание размера между
+/// запусками. Позицию не сохраняем: на Wayland ею управляет композитор,
+/// а на X11/Windows она часто оказывается за краем экрана.
 class DesktopWindow with WindowListener {
   DesktopWindow._();
   static final DesktopWindow _instance = DesktopWindow._();
@@ -61,8 +59,6 @@ class DesktopWindow with WindowListener {
     windowManager.addListener(_instance);
   }
 
-  // ── WindowListener ────────────────────────────────────────────────────
-
   @override
   void onWindowResized() => _scheduleSave();
 
@@ -80,8 +76,8 @@ class DesktopWindow with WindowListener {
 
   Future<void> _saveSize() async {
     try {
-      // В развёрнутом состоянии размер «на весь экран» не запоминаем:
-      // иначе после сворачивания окно останется огромным.
+      // Развёрнутый/полноэкранный размер не запоминаем, иначе после
+      // сворачивания окно останется огромным.
       if (await windowManager.isMaximized()) return;
       if (await windowManager.isFullScreen()) return;
       final size = await windowManager.getSize();

@@ -10,8 +10,8 @@ import '../db/app_database.dart';
 import '../network/epos_http_client.dart';
 import '../settings/avatar_storage.dart';
 
-/// Снимок текущего состояния — чтобы UI показал одним куском и не
-/// гонял по пять фьючеров на rebuild.
+/// Снимок текущего состояния для UI — одним куском, без пяти фьючеров
+/// на каждый rebuild.
 class DebugSnapshot {
   final EposSession? epos;
   final String? deviceKey;
@@ -24,9 +24,8 @@ class DebugSnapshot {
   Map<String, String> get cookies => epos?.cookies ?? const {};
 }
 
-/// Утилиты для отладки: сброс отдельных частей состояния приложения.
-/// Всё, что тут есть — деструктивно (или почти), вызывается только из
-/// DeveloperScreen в настройках.
+/// Деструктивные утилиты для DeveloperScreen: сброс отдельных частей
+/// состояния приложения.
 class DebugTools {
   DebugTools._();
   static final instance = DebugTools._();
@@ -36,18 +35,13 @@ class DebugTools {
 
   final _cache = CacheService();
 
-  // ── Снимок состояния ───────────────────────────────────────────────────
-
   Future<DebugSnapshot> snapshot() async {
     final epos = await SessionRefreshService.instance.load();
     final key = await DeviceTokenAuthService.instance.readDeviceKey();
     return DebugSnapshot(epos: epos, deviceKey: key);
   }
 
-  // ── Отравление (испортить значение, сохранив ключ) ────────────────────
-
-  /// Отравить одну cookie. Значение заменяется на маркер с timestamp,
-  /// чтобы в UI сразу было видно, что это тест.
+  /// Отравить одну cookie маркером с timestamp.
   Future<void> poisonCookie(String name) async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -57,8 +51,7 @@ class DebugTools {
     await _save(next);
   }
 
-  /// Отравить device_token (UUID из ESIA). GET /authenticate на такой
-  /// UUID вернёт 4xx → renew вернёт authDead → ReauthSheet.
+  /// GET /authenticate на такой UUID вернёт 4xx → renew → authDead.
   Future<void> poisonDeviceToken() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -68,10 +61,7 @@ class DebugTools {
     await _save(next);
   }
 
-  // ── Сброс (удалить значение) ──────────────────────────────────────────
-
-  /// Убрать device_token. Сессия останется живой, пока cookies валидны,
-  /// но первый же 401 приведёт к authDead (renew не сможет обновиться).
+  /// Сессия живёт, пока cookies валидны, но первый же 401 даст authDead.
   Future<void> clearDeviceToken() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -79,8 +69,7 @@ class DebugTools {
     await _save(next);
   }
 
-  /// Убрать OAuth-пару (access + refresh + expires). Для legacy-сессий
-  /// сломает refresh, для device-token — безвредно.
+  /// Ломает refresh legacy-сессий, для device-token безвредно.
   Future<void> clearOauthPair() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -98,7 +87,7 @@ class DebugTools {
     await _save(next);
   }
 
-  /// Убрать long_token. Для API он балласт, так что эффекта не ждём.
+  /// Для API long_token — балласт, эффекта не ждём.
   Future<void> clearLongToken() async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return;
@@ -123,12 +112,8 @@ class DebugTools {
     SessionNotifier.instance.reset();
   }
 
-  // ── Прямой запрос в обход клиента ─────────────────────────────────────
-
-  /// Отправить GET к ЭПОСу с текущими cookies, минуя ApiClient и
-  /// AuthCoordinator. Renew не сработает даже на 401/403 — вернётся
-  /// чистый ответ сервера. Нужно для проверки гипотез про WAF и
-  /// отдельные cookies.
+  /// GET к ЭПОСу с текущими cookies, минуя ApiClient и AuthCoordinator:
+  /// renew не сработает даже на 401/403. Для проверки гипотез про WAF.
   Future<String> probe(String path) async {
     final s = await SessionRefreshService.instance.load();
     if (s == null) return 'Нет сессии';
@@ -152,12 +137,8 @@ class DebugTools {
     }
   }
 
-  // ── device_key ─────────────────────────────────────────────────────────
-
   Future<void> resetDeviceKey() =>
       DeviceTokenAuthService.instance.resetDeviceKey();
-
-  // ── Кэш (SharedPreferences) ────────────────────────────────────────────
 
   Future<void> clearProfileCache() => _cache.remove('profile');
   Future<void> clearAcademicYearsCache() => _cache.remove('academic_years');
@@ -186,8 +167,6 @@ class DebugTools {
     AvatarStorage.invalidateAll();
   }
 
-  // ── SQLite ─────────────────────────────────────────────────────────────
-
   Future<void> clearLessons() =>
       AppDatabase.instance.clearTable(AppDatabase.tableLessons);
 
@@ -210,8 +189,6 @@ class DebugTools {
 
   Future<void> clearWholeDatabase() => AppDatabase.instance.clearAll();
 
-  // ── Действия ───────────────────────────────────────────────────────────
-
   Future<String> forceSessionRefresh() async {
     final outcome = await AuthCoordinator.instance.renew();
     return switch (outcome) {
@@ -220,8 +197,6 @@ class DebugTools {
       RenewOutcome.networkError => 'Сеть недоступна',
     };
   }
-
-  // ── Полный сброс ───────────────────────────────────────────────────────
 
   Future<void> fullWipe({bool alsoDeviceKey = false}) async {
     AuthCoordinator.instance.clear();
@@ -235,12 +210,8 @@ class DebugTools {
     SessionNotifier.instance.reset();
   }
 
-  // ── Внутреннее ─────────────────────────────────────────────────────────
-
-  /// Общая обвязка для сохранения изменённой сессии: пишем в storage,
-  /// обновляем in-memory состояние AuthCoordinator, снимаем sticky-флаг
-  /// «сессия истекла» (иначе тестовая отравленная сессия не даст UI
-  /// показать актуальную картину).
+  /// Сохраняет сессию, обновляет in-memory состояние AuthCoordinator и
+  /// снимает sticky-флаг «сессия истекла», иначе UI не покажет новую картину.
   Future<void> _save(EposSession next) async {
     await SessionRefreshService.instance.save(next);
     AuthCoordinator.instance.setSession(next);

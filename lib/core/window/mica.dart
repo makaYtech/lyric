@@ -3,13 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_acrylic/flutter_acrylic.dart';
 
-/// Mica — полупрозрачная подложка окна Windows 11 (та же, что у «Параметров»
-/// и проводника). Рисует её сама система (DWM), Flutter лишь делает свой
-/// фон прозрачным. Работает на Windows 11 22H2+ (сборка 22621); на Windows 10
-/// и Linux ничего не включается, и тема красит окно обычным сплошным цветом.
+/// Mica — полупрозрачная подложка окна Windows 11; рисует её DWM, Flutter
+/// лишь делает фон прозрачным. Нужна Windows 11 22H2+ (сборка 22621).
 abstract final class Mica {
-  /// true — Mica реально включена; тема читает это, чтобы сделать
-  /// фон Scaffold прозрачным.
+  /// true — Mica включена; тема делает фон Scaffold прозрачным.
   static bool enabled = false;
 
   static bool get supported {
@@ -44,8 +41,8 @@ abstract final class Mica {
   }
 }
 
-/// Следит за светлой/тёмной темой и переключает Mica вслед за ней.
-/// Ставится в MaterialApp.builder.
+/// Переключает Mica вслед за светлой/тёмной темой. Ставится в
+/// MaterialApp.builder.
 class MicaScope extends StatefulWidget {
   final Widget child;
   const MicaScope({super.key, required this.child});

@@ -1,16 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../../models/homework_attachment.dart';
-import '../../services/attachment_service.dart';
+import '../../domain/homework/homework_attachment.dart';
+import '../../data/services/media/attachment_service.dart';
 import '../shell/adaptive_sheet.dart';
 
-/// Кнопка «файл ДЗ». Одна на оба места:
-///  - dense (в карточке ДЗ)  — круглая IconButton с иконкой download;
-///  - full (в модалках)      — OutlinedButton с именем файла.
-///
-/// По тапу: скачивает файл во временную папку (с прогрессом прямо
-/// в кнопке) и открывает системным приложением через OpenFilex.
-/// Если файлов несколько — сначала показывает шторку выбора.
+/// Кнопка «файл ДЗ»: dense — круглая иконка в карточке, full — кнопка с
+/// именем файла в модалке. Скачивает во временную папку и открывает
+/// системным приложением; при нескольких файлах сначала показывает выбор.
 class AttachmentButton extends StatefulWidget {
   final List<HomeworkAttachment> attachments;
   final bool dense;

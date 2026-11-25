@@ -6,9 +6,8 @@ import '../../core/layout/adaptive.dart';
 import '../../services/update/update_service.dart';
 import '../shell/adaptive_sheet.dart';
 
-/// Показывает шторку обновления. Возвращает true, если интент установщика
-/// ушёл успешно (не факт, что пользователь подтвердил установку — система
-/// сама решит); false — если отменил или что-то не получилось.
+/// Шторка обновления. true — интент установщика ушёл (система сама решит,
+/// ставить ли); false — отменили или не получилось.
 Future<bool> showUpdateSheet(BuildContext context, UpdateInfo info) async {
   final result = await showAdaptiveSheet<bool>(
     context,
@@ -154,8 +153,6 @@ class _UpdateSheetState extends State<UpdateSheet> {
     }
   }
 
-  // ── Prompt ───────────────────────────────────────────────────────────
-
   List<Widget> _buildPrompt(ThemeData theme) {
     final dim = theme.colorScheme.onSurfaceVariant;
     return [
@@ -233,8 +230,6 @@ class _UpdateSheetState extends State<UpdateSheet> {
       ),
     ];
   }
-
-  // ── Downloading ──────────────────────────────────────────────────────
 
   List<Widget> _buildDownloading(ThemeData theme) {
     final percent = (_progress * 100).toStringAsFixed(0);

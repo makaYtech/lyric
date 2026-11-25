@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 
 import '../../core/schedule/gap_utils.dart';
 import '../../core/settings/schedule_prefs.dart';
-import '../../models/bells_timetable.dart';
-import '../../models/day_schedule.dart';
-import '../../models/lesson.dart';
-import '../../models/lesson_attendance.dart';
-import '../../models/lesson_grades.dart';
-import 'gap_card.dart';
-import 'lesson_density.dart';
-import 'lesson_card.dart';
+import '../../domain/schedule/bells_timetable.dart';
+import '../../domain/schedule/day_schedule.dart';
+import '../../domain/schedule/lesson.dart';
+import '../../domain/schedule/lesson_attendance.dart';
+import '../../domain/schedule/lesson_grades.dart';
+import './gap_card.dart';
+import './lesson_density.dart';
+import './lesson_card.dart';
 
 class DayScheduleCard extends StatefulWidget {
   final DaySchedule day;
@@ -167,8 +167,6 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
     return out;
   }
 
-  // ── Gesture ────────────────────────────────────────────────────────────
-
   void _onLongPressStart(Lesson lesson, LongPressStartDetails details) {
     if (_isDragging) _resetDragState();
     if (!widget.isSelectionMode) return;
@@ -275,7 +273,7 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
     final dragged = origOrder[dragIndex];
     final target = origOrder[targetIndex];
 
-    // Drop на окно — отдаём наружу, там откроется диалог со слотами.
+    // Drop на окно — наружу, там откроется диалог со слотами.
     // Только для drag'а обычного урока/пары, не окна.
     if (target.isGap && !dragged.isGap && widget.onDropOnGap != null) {
       _resetDragState();
@@ -331,8 +329,6 @@ class _DayScheduleCardState extends State<DayScheduleCard> {
       _dragTargetIndex = null;
     });
   }
-
-  // ── Build ──────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {

@@ -10,9 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/settings/update_prefs.dart';
 
-/// ────────────────────────────────────────────────────────────────────
 /// Модель одного канала из update.json.
-/// ────────────────────────────────────────────────────────────────────
 class UpdateInfo {
   final String version;
   final String changelog;
@@ -21,7 +19,7 @@ class UpdateInfo {
   final String apkName;
 
   /// Необязательно: прямая ссылка на страницу загрузки (desktop). Если пусто —
-  /// берётся страница релиза v<version> в репозитории.
+  /// берётся страница релиза `v<version>` в репозитории.
   final String pageUrl;
 
   const UpdateInfo({
@@ -52,9 +50,7 @@ class UpdateInfo {
   }
 }
 
-/// ────────────────────────────────────────────────────────────────────
 /// Результат проверки.
-/// ────────────────────────────────────────────────────────────────────
 enum UpdateCheckResult { upToDate, available, networkError, parseError }
 
 class UpdateCheck {
@@ -95,9 +91,7 @@ class UpdateCheck {
       );
 }
 
-/// ────────────────────────────────────────────────────────────────────
 /// Результат скачивания.
-/// ────────────────────────────────────────────────────────────────────
 class UpdateDownloadResult {
   final File? file;
   final String? error;
@@ -116,23 +110,17 @@ class UpdateInstallResult {
   const UpdateInstallResult.failure(String e) : this._(false, e);
 }
 
-/// ────────────────────────────────────────────────────────────────────
 /// Сервис обновлений через GitHub Releases.
 ///
-///   • update.json лежит в main-ветке репозитория, читается через
-///     raw.githubusercontent.com — там нет rate limit'а на анонимные
-///     запросы (в отличие от api.github.com).
-///   • APK лежит в GitHub Releases, по пути
-///     releases/download/v<version>/<apk_name>.
-///   • Скачивание с 5 попытками, SHA-256 проверяется после каждой.
-///   • Установка — через OpenFilex с MIME-типом APK; открывается
-///     системный пакетный установщик.
-/// ────────────────────────────────────────────────────────────────────
+/// update.json читается с raw.githubusercontent.com — там нет rate limit'а
+/// на анонимные запросы, в отличие от api.github.com. APK лежит в релизах
+/// по пути `releases/download/v<version>/<apk_name>`; SHA-256 проверяется
+/// после каждой из 5 попыток скачивания.
 class UpdateService {
   UpdateService._();
   static final instance = UpdateService._();
 
-  // ⚠️ ЗАМЕНИ ЭТИ ДВЕ СТРОКИ ПОСЛЕ СОЗДАНИЯ РЕПОЗИТОРИЯ.
+  // Репозиторий с релизами.
   static const _owner = 'makaYtech';
   static const _repo = 'lyric_apk';
 
@@ -210,7 +198,7 @@ class UpdateService {
   }
 
   /// Страница загрузки для desktop (Windows/Linux): явная `page_url` из
-  /// update.json или страница релиза v<version>.
+  /// update.json или страница релиза `v<version>`.
   String releasePageUrl(UpdateInfo info) => info.pageUrl.isNotEmpty
       ? info.pageUrl
       : 'https://github.com/$_owner/$_repo/releases/tag/v${info.version}';
@@ -305,14 +293,12 @@ class UpdateService {
     }
   }
 
-  // ── Вспомогательное ────────────────────────────────────────────────
-
   static Future<String> _sha256OfFile(File file) async {
     final digest = await sha256.bind(file.openRead()).first;
     return digest.toString();
   }
 
-  /// Сравнение «semver-подобных» строк с поддержкой -beta/-alpha.
+  /// Сравнение «semver-подобных» строк с поддержкой -beta.
   ///   "1.0.1"       > "1.0.0"
   ///   "1.0.1-beta"  > "1.0.0"
   ///   "1.0.1-beta"  < "1.0.1"       (пререлиз старше релиза)

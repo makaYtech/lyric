@@ -1,13 +1,14 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
-import '../../models/homework.dart';
-import 'app_database.dart';
-import 'dart:convert';
-import '../../models/homework_attachment.dart';
+import '../../domain/homework/homework.dart';
+import '../../domain/homework/homework_attachment.dart';
+import './app_database.dart';
+import './dao_utils.dart';
 
-/// ДЗ живут по годам: перезаписываем весь год разом. Так проще, чем
-/// по неделям — ДЗ не так много, а диапазон у нас всегда один и тот же
-/// (сентябрь..август), поэтому delete+insert не страшен.
+/// ДЗ перезаписываются целиком за год: их немного, а диапазон всегда
+/// сентябрь..август, так что delete+insert не страшен.
 class HomeworkDao {
   Future<void> saveAll(int yearId, List<Homework> homeworks) async {
     final db = await AppDatabase.instance.database;
@@ -23,34 +24,30 @@ class HomeworkDao {
       final batch = txn.batch();
       for (final h in homeworks) {
         if (h.id == 0) continue;
-        batch.insert(
-          AppDatabase.tableHomeworks,
-          {
-            'id': h.id,
-            'year_id': yearId,
-            'homework_id': h.homeworkId,
-            'entry_id': h.entryId,
-            'description': h.description,
-            'due_date': h.dueDate?.toIso8601String(),
-            'assigned_at': h.assignedAt?.toIso8601String(),
-            'created_at': h.createdAt?.toIso8601String(),
-            'subject_name': h.subjectName,
-            'subject_id': h.subjectId,
-            'teacher_id': h.teacherId,
-            'group_id': h.groupId,
-            'is_required': h.isRequired ? 1 : 0,
-            'mark_required': h.markRequired ? 1 : 0,
-            'updated_at': now,
-            'teacher_name': h.teacherName,
-            'attachments_json': jsonEncode(
-              h.attachments.map((a) => a.toJson()).toList(),
-            ),
-            'my_attachments_json': jsonEncode(
-              h.myAttachments.map((a) => a.toJson()).toList(),
-            ),
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert(AppDatabase.tableHomeworks, {
+          'id': h.id,
+          'year_id': yearId,
+          'homework_id': h.homeworkId,
+          'entry_id': h.entryId,
+          'description': h.description,
+          'due_date': h.dueDate?.toIso8601String(),
+          'assigned_at': h.assignedAt?.toIso8601String(),
+          'created_at': h.createdAt?.toIso8601String(),
+          'subject_name': h.subjectName,
+          'subject_id': h.subjectId,
+          'teacher_id': h.teacherId,
+          'group_id': h.groupId,
+          'is_required': h.isRequired ? 1 : 0,
+          'mark_required': h.markRequired ? 1 : 0,
+          'updated_at': now,
+          'teacher_name': h.teacherName,
+          'attachments_json': jsonEncode(
+            h.attachments.map((a) => a.toJson()).toList(),
+          ),
+          'my_attachments_json': jsonEncode(
+            h.myAttachments.map((a) => a.toJson()).toList(),
+          ),
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
@@ -69,16 +66,12 @@ class HomeworkDao {
 
   Future<DateTime?> lastUpdated(int yearId) async {
     final db = await AppDatabase.instance.database;
-    final rows = await db.query(
+    return lastUpdatedAt(
+      db,
       AppDatabase.tableHomeworks,
-      columns: ['updated_at'],
       where: 'year_id = ?',
       whereArgs: [yearId],
-      orderBy: 'updated_at DESC',
-      limit: 1,
     );
-    if (rows.isEmpty) return null;
-    return DateTime.tryParse(rows.first['updated_at'] as String);
   }
 
   Homework _fromRow(Map<String, dynamic> r) => Homework(
@@ -96,23 +89,12 @@ class HomeworkDao {
     isRequired: (r['is_required'] as int? ?? 0) == 1,
     markRequired: (r['mark_required'] as int? ?? 0) == 1,
     teacherName: r['teacher_name'] as String?,
-    attachments: _decodeAttachments(r['attachments_json']),
-    myAttachments: _decodeAttachments(r['my_attachments_json']),
+    attachments: HomeworkAttachment.listFromJsonString(r['attachments_json']),
+    myAttachments: HomeworkAttachment.listFromJsonString(
+      r['my_attachments_json'],
+    ),
   );
 
   static DateTime? _date(Object? raw) =>
       raw is String ? DateTime.tryParse(raw) : null;
-
-  static List<HomeworkAttachment> _decodeAttachments(Object? raw) {
-    if (raw is! String || raw.isEmpty) return const [];
-    try {
-      return (jsonDecode(raw) as List)
-          .whereType<Map<String, dynamic>>()
-          .map(HomeworkAttachment.fromJson)
-          .where((a) => a.url.isNotEmpty)
-          .toList();
-    } catch (_) {
-      return const [];
-    }
-  }
 }

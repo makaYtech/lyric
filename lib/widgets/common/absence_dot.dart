@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 
-import '../../models/attendance.dart';
+import '../../domain/attendance/attendance.dart';
 import '../shell/adaptive_sheet.dart';
+import './dot_base.dart';
 
-/// Кружок с «Н» — отсутствие на уроке. Визуально повторяет GradeDot,
-/// но это не оценка: цвет — только про уважительность причины.
-///   уважительная (absence_reason_id == 2) — жёлтый;
-///   иначе / null — красный.
+/// Кружок с «Н» — отсутствие на уроке. Цвет только про уважительность:
+/// жёлтый при `absence_reason_id == 2`, иначе красный.
 class AbsenceDot extends StatelessWidget {
   final bool excused;
   final double size;
@@ -25,15 +24,10 @@ class AbsenceDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = colorFor(excused: excused);
-    final dot = Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        shape: BoxShape.circle,
-        border: Border.all(color: color, width: 1),
-      ),
+    return DotBase(
+      color: color,
+      size: size,
+      onTap: onTap,
       child: Text(
         'Н',
         style: TextStyle(
@@ -42,13 +36,6 @@ class AbsenceDot extends StatelessWidget {
           fontWeight: FontWeight.w700,
         ),
       ),
-    );
-
-    if (onTap == null) return dot;
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: dot,
     );
   }
 }

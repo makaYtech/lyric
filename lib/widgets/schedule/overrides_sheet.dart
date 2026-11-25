@@ -1,24 +1,23 @@
 import 'package:flutter/material.dart';
 
-import '../../models/day_schedule.dart';
-import '../../models/lesson.dart';
-import '../../models/schedule_override.dart';
+import '../../domain/schedule/day_schedule.dart';
+import '../../domain/schedule/lesson.dart';
+import '../../domain/schedule/schedule_override.dart';
 import '../../core/util/labels.dart';
 
-/// Модалка «Правки недели». Список всех override'ов за текущую неделю,
-/// сгруппированный по дням. У каждой правки — кнопка «Вернуть».
-/// Внизу — «Откатить всё за неделю».
+/// Модалка «Правки недели»: override'ы за неделю по дням, «Вернуть» у
+/// каждой и «Откатить всё» внизу.
 ///
-/// Тексты правок строятся по сырым (не смердженным) урокам: для удалённого
-/// урока его в смердженных данных уже нет, а показать «Удалён: 09:00
-/// Алгебра» хочется.
+/// Тексты строятся по сырым урокам: удалённого урока в смердженных данных
+/// уже нет, а показать «Удалён: 09:00 Алгебра» нужно.
 class ScheduleOverridesSheet extends StatefulWidget {
   final List<ScheduleOverride> overrides;
   final List<DaySchedule> rawDays;
   final Future<void> Function(int id) onRevertOverride;
   final Future<void> Function() onRevertWeek;
   final Future<({List<ScheduleOverride> overrides, List<DaySchedule> rawDays})>
-  Function() onReload;
+  Function()
+  onReload;
 
   const ScheduleOverridesSheet({
     super.key,
@@ -30,8 +29,7 @@ class ScheduleOverridesSheet extends StatefulWidget {
   });
 
   @override
-  State<ScheduleOverridesSheet> createState() =>
-      _ScheduleOverridesSheetState();
+  State<ScheduleOverridesSheet> createState() => _ScheduleOverridesSheetState();
 }
 
 class _ScheduleOverridesSheetState extends State<ScheduleOverridesSheet> {
@@ -74,7 +72,7 @@ class _ScheduleOverridesSheetState extends State<ScheduleOverridesSheet> {
         title: const Text('Откатить всё за неделю?'),
         content: Text(
           'Будет удалено правок: ${_overrides.length}. '
-              'Расписание вернётся к серверному варианту.',
+          'Расписание вернётся к серверному варианту.',
         ),
         actions: [
           TextButton(
@@ -143,8 +141,8 @@ class _ScheduleOverridesSheetState extends State<ScheduleOverridesSheet> {
                 ),
               ],
             ),
-          )
-        )
+          ),
+        ),
       );
     }
 
@@ -242,15 +240,14 @@ class _ScheduleOverridesSheetState extends State<ScheduleOverridesSheet> {
   }
 }
 
-/// Одна строка правки. Поле называется `item`, а НЕ `override` — потому
-/// что `override` шадоуит аннотацию `@override` из dart:core.
+/// Одна строка правки. Поле `item`, а не `override`: `override` шадоуит
+/// аннотацию `@override`.
 class _OverrideRow extends StatelessWidget {
   final ScheduleOverride item;
   final Lesson? rawLesson;
   final Lesson? secondaryRaw;
 
-  /// Поиск сырого урока по id. Нужен для kind'а reorder, где в payload
-  /// лежит список id, а не один.
+  /// Поиск сырого урока по id — нужен для reorder, где в payload список id.
   final Lesson? Function(int lessonId) findRaw;
 
   final VoidCallback? onRevert;
@@ -279,16 +276,8 @@ class _OverrideRow extends StatelessWidget {
             children: [
               Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
               const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  text,
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-              TextButton(
-                onPressed: onRevert,
-                child: const Text('Вернуть'),
-              ),
+              Expanded(child: Text(text, style: theme.textTheme.bodyMedium)),
+              TextButton(onPressed: onRevert, child: const Text('Вернуть')),
             ],
           ),
         ),
@@ -325,9 +314,7 @@ class _OverrideRow extends StatelessWidget {
 
       case ScheduleOverrideKind.reorder:
         final order = item.reorderOrder();
-        final names = order
-            .map((id) => findRaw(id)?.subject ?? '?')
-            .toList();
+        final names = order.map((id) => findRaw(id)?.subject ?? '?').toList();
         return (Icons.swap_vert, 'Перестановка: ${names.join(' → ')}');
     }
   }

@@ -1,19 +1,16 @@
 import 'dart:convert';
 
-import '../../models/grade_slice.dart';
-import '../../models/subject_grade.dart';
-import 'app_database.dart';
+import '../../domain/schedule/grade_slice.dart';
+import '../../domain/grades/subject_grade.dart';
+import './app_database.dart';
+import './dao_utils.dart';
 
-/// Оценки сравниваются на уровне (предмет, период, вид работы):
-/// это самый мелкий разрез, который реально приходит из API одним
-/// списком (marks[].values[]). Если список оценок внутри такого среза
-/// отличается от того, что было сохранено — это и есть "изменение":
-/// пишем старую версию в grade_history, помечаем срез changed=1.
+/// Оценки сравниваются на уровне (предмет, период, вид работы) — самый
+/// мелкий разрез из API. Если список оценок изменился, старая версия идёт
+/// в grade_history, а срез помечается changed=1.
 ///
-/// Даты, комментарии и веса сохраняются параллельно grades — по индексу.
-/// Если у среза изменились только даты/комменты/веса, а сами оценки те же,
-/// срез не помечается changed (UI это не интересно), но значения
-/// в БД всё равно обновляются.
+/// Даты, комментарии и веса хранятся параллельно grades по индексу; их
+/// изменение само по себе срез changed не помечает.
 class GradesDao {
   Future<void> sync(int yearId, List<SubjectGrade> subjects) async {
     final db = await AppDatabase.instance.database;
@@ -139,16 +136,12 @@ class GradesDao {
 
   Future<DateTime?> lastUpdated(int yearId) async {
     final db = await AppDatabase.instance.database;
-    final rows = await db.query(
+    return lastUpdatedAt(
+      db,
       AppDatabase.tableGrades,
-      columns: ['updated_at'],
       where: 'year_id = ?',
       whereArgs: [yearId],
-      orderBy: 'updated_at DESC',
-      limit: 1,
     );
-    if (rows.isEmpty) return null;
-    return DateTime.tryParse(rows.first['updated_at'] as String);
   }
 
   GradeSlice _sliceFromRow(Map<String, dynamic> r) => GradeSlice(

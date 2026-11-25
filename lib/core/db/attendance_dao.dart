@@ -1,10 +1,11 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../models/attendance.dart';
-import 'app_database.dart';
+import '../../domain/attendance/attendance.dart';
+import './app_database.dart';
+import './dao_utils.dart';
 
-/// Отсутствия живут по учебному году: перезаписываем весь список
-/// целиком при каждом refresh. Записей за год — сотни, не страшно.
+/// Отсутствия живут по учебному году: при refresh перезаписываем весь
+/// список целиком — записей сотни, не страшно.
 class AttendanceDao {
   Future<void> saveAll(int yearId, List<Attendance> list) async {
     final db = await AppDatabase.instance.database;
@@ -39,15 +40,11 @@ class AttendanceDao {
 
   Future<DateTime?> lastUpdated(int yearId) async {
     final db = await AppDatabase.instance.database;
-    final rows = await db.query(
+    return lastUpdatedAt(
+      db,
       AppDatabase.tableAttendances,
-      columns: ['updated_at'],
       where: 'year_id = ?',
       whereArgs: [yearId],
-      orderBy: 'updated_at DESC',
-      limit: 1,
     );
-    if (rows.isEmpty) return null;
-    return DateTime.tryParse(rows.first['updated_at'] as String);
   }
 }

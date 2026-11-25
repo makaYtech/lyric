@@ -1,12 +1,9 @@
-import '../../models/schedule_override.dart';
+import '../../domain/schedule/schedule_override.dart';
 import '../util/date_time.dart';
-import 'app_database.dart';
+import './app_database.dart';
 
-/// CRUD над таблицей schedule_overrides.
-///
-/// Отдельная таблица, а не поле в lessons: серверный refresh перезаписывает
-/// lessons целиком, а правки пользователя должны это пережить. См. модель
-/// ScheduleOverride — там подробнее про смысл.
+/// CRUD над schedule_overrides. Отдельная таблица, чтобы серверный refresh
+/// lessons не стирал правки пользователя (см. модель ScheduleOverride).
 class ScheduleOverridesDao {
   Future<List<ScheduleOverride>> loadWeek(int yearId, DateTime monday) async {
     final db = await AppDatabase.instance.database;
@@ -37,8 +34,7 @@ class ScheduleOverridesDao {
     return db.insert(AppDatabase.tableScheduleOverrides, o.toRow());
   }
 
-  /// Вставка нескольких одной транзакцией. Возвращает id'ы вставленных
-  /// записей — нужны для undo-снакбара («отменить только что сделанное»).
+  /// Вставка нескольких одной транзакцией. id нужны для undo-снакбара.
   Future<List<int>> insertAll(List<ScheduleOverride> overrides) async {
     if (overrides.isEmpty) return const [];
     final db = await AppDatabase.instance.database;
@@ -77,8 +73,7 @@ class ScheduleOverridesDao {
     );
   }
 
-  /// Удаление всех правок, задевающих конкретный урок — и как primary,
-  /// и как secondary.
+  /// Удаление всех правок, задевающих урок — и как primary, и как secondary.
   Future<void> deleteForLesson(int yearId, DateTime date, int lessonId) async {
     final db = await AppDatabase.instance.database;
     await db.delete(
@@ -125,8 +120,7 @@ class ScheduleOverridesDao {
     return (r.first['c'] as int?) ?? 0;
   }
 
-  /// Удалить все reorder-записи дня. Вызывается перед вставкой новой —
-  /// один reorder на день, предыдущий заменяется.
+  /// Удалить reorder-записи дня: один reorder на день, новый заменяет старый.
   Future<void> deleteReordersForDay(int yearId, DateTime date) async {
     final db = await AppDatabase.instance.database;
     await db.delete(

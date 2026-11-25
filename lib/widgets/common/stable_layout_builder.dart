@@ -1,21 +1,12 @@
 import 'package:flutter/widgets.dart';
 
-/// Как [LayoutBuilder], но дерево ниже пересобирается ТОЛЬКО когда меняется
-/// «ключ раскладки» [keyOf] (например, широкий/узкий режим или число колонок),
-/// а не на каждом пикселе ресайза.
+/// Как [LayoutBuilder], но дерево ниже пересобирается только при смене
+/// ключа раскладки [keyOf], а не на каждом пикселе ресайза: на неизменный
+/// ключ возвращается тот же виджет, и Flutter делает лишь дешёвый relayout.
 ///
-/// Зачем: обычный LayoutBuilder вызывает builder на каждый кадр при
-/// растягивании окна, и всё, что внутри (карточки расписания, оценки, колонки
-/// ДЗ), создаётся заново. Здесь на неизменный ключ возвращается ТОТ ЖЕ
-/// виджет — Flutter не пересобирает его, остаётся только дешёвый relayout.
-///
-/// Правила:
-///  * [keyOf] должен возвращать дискретное значение (bool, int, enum, record),
-///    которое сравнивается по `==`;
-///  * [builder] не должен использовать «сырые» размеры из constraints — только
-///    то, что вошло в ключ, иначе при ресайзе они устареют;
-///  * кэш сбрасывается, когда родитель пересобрал сам StableLayoutBuilder
-///    (то есть при любом изменении данных/состояния родителя).
+/// [keyOf] должен возвращать дискретное значение (bool, int, enum, record),
+/// а [builder] — не использовать «сырые» размеры из constraints. Кэш
+/// сбрасывается, когда родитель пересобрал сам StableLayoutBuilder.
 class StableLayoutBuilder<K> extends StatefulWidget {
   final K Function(BoxConstraints constraints) keyOf;
   final Widget Function(BuildContext context, BoxConstraints constraints, K key)
@@ -38,8 +29,7 @@ class _StableLayoutBuilderState<K> extends State<StableLayoutBuilder<K>> {
   @override
   void didUpdateWidget(StableLayoutBuilder<K> oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Родитель пересобрался (данные/состояние могли измениться) — кэш не
-    // годится.
+    // Родитель пересобрался — данные могли измениться, кэш не годится.
     _child = null;
   }
 

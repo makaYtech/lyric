@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-import '../../models/attendance.dart';
-import '../../models/lesson.dart';
-import '../../models/lesson_grades.dart';
+import '../../domain/attendance/attendance.dart';
+import '../../domain/schedule/lesson.dart';
+import '../../domain/schedule/lesson_grades.dart';
 import '../common/absence_dot.dart';
 import '../common/grade_dot.dart';
-import 'lesson_details_sheet.dart';
+import './lesson_details_sheet.dart';
 import '../shell/adaptive_sheet.dart';
-import 'lesson_density.dart';
+import './lesson_density.dart';
 
 class LessonCard extends StatelessWidget {
   final Lesson lesson;
@@ -20,8 +20,7 @@ class LessonCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
 
-  /// Полностью невидимая карточка (opacity 0). Для оригинала на месте
-  /// во время drag.
+  /// Полностью невидимая карточка (opacity 0) — оригинал во время drag.
   final bool invisible;
 
   /// Полностью убрать InkWell из дерева. Нужно для drag-eligible уроков.
@@ -304,8 +303,7 @@ class LessonCard extends StatelessWidget {
     );
   }
 
-  /// Одна строка, как в бумажном дневнике. ДЗ — иконкой с подсказкой
-  /// (полный текст — в деталях по клику).
+  /// Одна строка, как в бумажном дневнике; полный текст ДЗ — в деталях.
   Widget _denseInner(BuildContext context, ThemeData theme, Color dim) {
     final hasHomework = lesson.homeworks.isNotEmpty;
     return Padding(

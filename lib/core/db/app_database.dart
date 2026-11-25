@@ -41,14 +41,9 @@ class AppDatabase {
     }
   }
 
-  /// Где лежит файл БД.
-  ///
-  /// Android/iOS — «Документы» приложения, как и раньше (там уже есть БД
-  /// у существующих пользователей, путь менять нельзя).
-  /// Desktop — каталог данных приложения (~/.local/share/<app> на Linux):
-  /// это не засоряет пользовательские «Документы», и на Linux не нужна
-  /// утилита xdg-user-dir, без которой getApplicationDocumentsDirectory()
-  /// бросает MissingPlatformDirectoryException.
+  /// Android/iOS — «Документы» приложения: там уже есть БД у существующих
+  /// пользователей, путь менять нельзя. Desktop — каталог данных приложения:
+  /// не засоряет «Документы» и не требует xdg-user-dir на Linux.
   Future<Directory> _databaseDirectory() async {
     if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
       final dir = await getApplicationSupportDirectory();
@@ -171,9 +166,7 @@ class AppDatabase {
           }
         }
         if (oldVersion < 18) {
-          // Колонки для пересборки блока «ДЗ» из кэша без сети:
-          // subject_id — фильтр по предмету для режима дедлайна;
-          // homework_ids_json — сырые id ДЗ из homeworks_to_give.
+          // Колонки для пересборки блока «ДЗ» из кэша без сети.
           if (!await _columnExists(db, tableLessons, 'subject_id')) {
             await db.execute(
               'ALTER TABLE $tableLessons ADD COLUMN subject_id INTEGER',

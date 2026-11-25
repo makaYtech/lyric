@@ -1,8 +1,9 @@
 import 'package:sqflite/sqflite.dart';
 
-import '../../models/mark.dart';
+import '../../domain/grades/mark.dart';
 import '../util/date_time.dart';
-import 'app_database.dart';
+import './app_database.dart';
+import './dao_utils.dart';
 
 /// marks живут по неделям: перезаписываем всю неделю за раз.
 class MarksDao {
@@ -24,24 +25,20 @@ class MarksDao {
       for (final m in marks) {
         final d = m.date ?? m.createdAt;
         if (d == null) continue;
-        batch.insert(
-          AppDatabase.tableMarks,
-          {
-            'id': m.id,
-            'year_id': yearId,
-            'date': isoDate(d),
-            'value': m.value,
-            'subject_id': m.subjectId,
-            'created_at': m.createdAt?.toIso8601String(),
-            'schedule_lesson_id': m.scheduleLessonId,
-            'group_id': m.groupId,
-            'teacher_id': m.teacherId,
-            'updated_at': now,
-            'work_type': m.workType,
-            'is_absence': m.isAbsence ? 1 : 0,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert(AppDatabase.tableMarks, {
+          'id': m.id,
+          'year_id': yearId,
+          'date': isoDate(d),
+          'value': m.value,
+          'subject_id': m.subjectId,
+          'created_at': m.createdAt?.toIso8601String(),
+          'schedule_lesson_id': m.scheduleLessonId,
+          'group_id': m.groupId,
+          'teacher_id': m.teacherId,
+          'updated_at': now,
+          'work_type': m.workType,
+          'is_absence': m.isAbsence ? 1 : 0,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
@@ -61,16 +58,12 @@ class MarksDao {
   Future<DateTime?> lastUpdated(int yearId, DateTime monday) async {
     final db = await AppDatabase.instance.database;
     final sunday = monday.add(const Duration(days: 6));
-    final rows = await db.query(
+    return lastUpdatedAt(
+      db,
       AppDatabase.tableMarks,
-      columns: ['updated_at'],
       where: 'year_id = ? AND date BETWEEN ? AND ?',
       whereArgs: [yearId, isoDate(monday), isoDate(sunday)],
-      orderBy: 'updated_at DESC',
-      limit: 1,
     );
-    if (rows.isEmpty) return null;
-    return DateTime.tryParse(rows.first['updated_at'] as String);
   }
 
   Mark _fromRow(Map<String, dynamic> r) {

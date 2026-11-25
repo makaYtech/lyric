@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../models/subject_grade.dart';
+import '../../domain/grades/subject_grade.dart';
 import '../common/grade_dot.dart';
 
 class SubjectGradeCard extends StatefulWidget {

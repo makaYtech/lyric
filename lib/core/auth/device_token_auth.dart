@@ -6,7 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../network/epos_http_client.dart';
-import 'auth_config.dart';
+import './auth_config.dart';
 
 const _base = 'https://edu-epos.permkrai.ru';
 const _authenticateUrl = '$_base/authenticate';
@@ -18,24 +18,15 @@ const _ua = 'okhttp/4.12.0';
 
 /// Вход и refresh через долгоживущий device-token.
 ///
-/// Флоу (снято с официального android-клиента ru.permkrai.school):
+/// Флоу (снято с официального android-клиента):
 ///   1. WebView → /authenticate/oauth?app=phone&mode=epos&sub_provider=esia.
-///      Пользователь проходит ESIA (логин/пароль/TOTP).
-///   2. Цепочка редиректов заканчивается на diaryperm://redirect?token=<UUID>.
-///      Ловим его в onNavigationRequest, отменяем навигацию.
-///   3. GET /authenticate с заголовком `token: <UUID>`.
-///      Сервер ставит cookies: RSESSION, long_token, is_auth,
-///      from_sudir, auth_token, aid, profile_id, waf_cookie, SERVERID.
-///   4. POST /authenticate/student_profile с body:
-///      {"auth_token": "<UUID>", "profile_id": <id>}
-///      (в body идёт именно UUID, не hex из cookie!)
-///   5. GET /authenticate/loginEom с cookies и заголовками
-///      auth-token: (пусто), profile-id: <id>.
+///   2. Редирект на `diaryperm://redirect?token=<UUID>` — ловим и отменяем.
+///   3. GET /authenticate с заголовком `token: <UUID>` — сервер ставит cookies.
+///   4. POST /authenticate/student_profile с `{"auth_token": "<UUID>",
+///      "profile_id": <id>}` — в body именно UUID, не hex из cookie!
+///   5. GET /authenticate/loginEom — финализирует сессию.
 ///
-/// После этого API-запросы идут с Cookie: <все cookies> — заголовки
-/// Auth-Token/Profile-Id оригинал не использует вообще.
-///
-/// Refresh = повторить шаги 3–5. device_token (UUID) при этом не меняется.
+/// Refresh = повторить шаги 3–5; сам device_token не меняется.
 class DeviceTokenAuthService {
   DeviceTokenAuthService._();
   static final instance = DeviceTokenAuthService._();
@@ -44,9 +35,8 @@ class DeviceTokenAuthService {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
-  /// 24 случайных байта → 32 base64url-символа.
-  /// Ключ не критичен для флоу (в дампе оригинала его нет), но оставлен
-  /// для совместимости с уже сохранёнными сессиями.
+  /// 24 случайных байта → 32 base64url-символа. Ключ не критичен для
+  /// флоу, оставлен для совместимости с уже сохранёнными сессиями.
   static String _generateDeviceKey() {
     final rnd = Random.secure();
     final bytes = List<int>.generate(24, (_) => rnd.nextInt(256));
@@ -103,12 +93,10 @@ class DeviceTokenAuthService {
   }
 
   /// Полный обмен: GET /authenticate → POST student_profile → GET loginEom.
-  /// Возвращает ВСЕ cookies, которые сервер выставил за три запроса.
-  /// Используется и при первичном логине, и при refresh (см. AuthCoordinator).
+  /// Возвращает ВСЕ cookies за три запроса.
   Future<DeviceExchangeResult> exchange(String deviceToken) async {
     final client = await createEposRawHttpClient();
     try {
-      // ── Шаг 1: GET /authenticate → cookies
       final step1 = await _doAuthenticate(client, deviceToken);
       if (step1.dead) return const DeviceExchangeResult.authDead();
       final cookies = step1.cookies;
@@ -120,7 +108,6 @@ class DeviceTokenAuthService {
         return const DeviceExchangeResult.authDead();
       }
 
-      // ── Шаг 2: POST /authenticate/student_profile (активирует профиль)
       await _doStudentProfile(
         client,
         cookies: cookies,
@@ -128,7 +115,6 @@ class DeviceTokenAuthService {
         profileId: profileId,
       );
 
-      // ── Шаг 3: GET /authenticate/loginEom (финализирует сессию)
       await _doLoginEom(client, cookies: cookies, profileId: profileId);
 
       return DeviceExchangeResult.success(
@@ -141,12 +127,8 @@ class DeviceTokenAuthService {
     }
   }
 
-  // ── Шаги флоу ─────────────────────────────────────────────────────────
-
-  /// Шаг 1. Возвращает ({cookies, dead}).
-  ///   dead == true    — 401/403, токен мёртв, нужен интерактивный вход.
-  ///   cookies == null — сеть/сервер, токен скорее всего жив.
-  ///   cookies != null — успех, все Set-Cookie.
+  /// Шаг 1. dead — 401/403 (токен мёртв); cookies == null — сеть/сервер,
+  /// токен скорее всего жив.
   Future<({Map<String, String>? cookies, bool dead})> _doAuthenticate(
     HttpClient client,
     String deviceToken,
@@ -166,9 +148,8 @@ class DeviceTokenAuthService {
     throw Exception('authenticate: HTTP ${resp.statusCode}');
   }
 
-  /// Шаг 2. В body auth_token — UUID из deep-link, НЕ cookie.
-  /// Эндпоинт может вернуть не-200, это не критично: главное, что он
-  /// активирует профиль в сессии и дописывает waf_cookie.
+  /// Шаг 2: в body auth_token — UUID из deep-link, не cookie. Не-200
+  /// не критичен: эндпоинт активирует профиль и дописывает waf_cookie.
   Future<void> _doStudentProfile(
     HttpClient client, {
     required Map<String, String> cookies,
@@ -193,8 +174,7 @@ class DeviceTokenAuthService {
     _mergeCookies(cookies, resp.headers);
   }
 
-  /// Шаг 3. С cookies предыдущих шагов и пустым auth-token заголовком.
-  /// Финализирует логин, обновляет waf_cookie и SERVERID.
+  /// Шаг 3: финализирует логин, обновляет waf_cookie и SERVERID.
   Future<void> _doLoginEom(
     HttpClient client, {
     required Map<String, String> cookies,
@@ -209,8 +189,6 @@ class DeviceTokenAuthService {
     await resp.drain<void>();
     _mergeCookies(cookies, resp.headers);
   }
-
-  // ── Cookie-помощники ──────────────────────────────────────────────────
 
   static String _buildCookieHeader(Map<String, String> cookies) =>
       cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');

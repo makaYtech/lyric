@@ -2,15 +2,10 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Простой кэш поверх SharedPreferences — для СТАТИЧЕСКИХ и небольших
-/// данных: профиль ученика, выбранный учебный год, прочие настройки.
+/// Кэш поверх SharedPreferences для статических и небольших данных:
+/// профиль, выбранный учебный год, настройки. Тяжёлые данные — в SQLite.
 ///
-/// Тяжёлые и часто меняющиеся данные (оценки, расписание) сюда не пишем —
-/// для них есть ScheduleDao/GradesDao поверх SQLite (core/db).
-///
-/// JSON-методы (save/load) автоматически ставят метку времени —
-/// ей пользуется lastUpdated(). Int-методы — для простых настроек
-/// вроде выбранного учебного года, без метки времени.
+/// JSON-методы ставят метку времени для lastUpdated(); int-методы — без неё.
 class CacheService {
   static const _timestampSuffix = '_updated_at';
 
@@ -20,10 +15,7 @@ class CacheService {
     await _touchTimestamp(prefs, key);
   }
 
-  Future<void> saveList(
-      String key,
-      List<Map<String, dynamic>> jsonList,
-      ) async {
+  Future<void> saveList(String key, List<Map<String, dynamic>> jsonList) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(key, jsonEncode(jsonList));
     await _touchTimestamp(prefs, key);
@@ -80,9 +72,7 @@ class CacheService {
     return prefs.getString(key);
   }
 
-  /// Снести одну запись вместе с её timestamp'ом.
-  /// Используется девелоперским сбросом — например, «забудь профиль,
-  /// пусть загрузится заново».
+  /// Снести запись вместе с timestamp'ом (девелоперский сброс).
   Future<void> remove(String key) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(key);
@@ -96,8 +86,7 @@ class CacheService {
     );
   }
 
-  /// Сносит всё, что мы положили, кроме темы оформления (она не
-  /// относится к данным пользователя). Используется при logout.
+  /// Сносит всё, кроме темы оформления. Используется при logout.
   Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     for (final key in prefs.getKeys().toList()) {

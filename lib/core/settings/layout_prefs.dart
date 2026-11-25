@@ -2,10 +2,8 @@ import 'package:flutter/foundation.dart';
 
 import '../cache/cache_service.dart';
 
-/// Настройки раскладки. Сейчас — только боковая панель.
-///
-/// Работает как AuthConfig: ValueNotifier'ы, значения грузятся один раз
-/// в main() через [load] и сохраняются при изменении.
+/// Настройки раскладки (сейчас — только боковая панель). Значения грузятся
+/// один раз в main() через [load] и сохраняются при изменении.
 class LayoutPrefs {
   LayoutPrefs._();
 

@@ -1,11 +1,9 @@
-import '../../models/homework.dart';
-import '../../models/homework_attachment.dart';
+import '../../domain/homework/homework.dart';
+import '../../domain/homework/homework_attachment.dart';
 import '../util/date_time.dart';
 
-/// Матчинг ДЗ к урокам. Одна и та же логика используется:
-///   • в ScheduleService — при сетевом запросе расписания;
-///   • в ScheduleRepository — при пересборке из кэша (когда юзер
-///     переключает режим группировки без обращения к серверу).
+/// Матчинг ДЗ к урокам — общая логика для сетевого запроса в
+/// ScheduleService и пересборки из кэша в ScheduleRepository.
 class HomeworkMatching {
   HomeworkMatching._();
 
@@ -18,9 +16,7 @@ class HomeworkMatching {
     return normalized != 'не задано';
   }
 
-  /// Построить мапы из плоского годового списка ДЗ:
-  ///   byId  — homework.id → Homework (для режима «задано в этот день»);
-  ///   byDue — iso(dueDate) → список Homework (для режима дедлайна).
+  /// byId — homework.id → Homework; byDue — iso(dueDate) → список Homework.
   static ({Map<int, Homework> byId, Map<String, List<Homework>> byDue})
   buildMaps(List<Homework> homeworks) {
     final byId = <int, Homework>{};
@@ -35,12 +31,8 @@ class HomeworkMatching {
     return (byId: byId, byDue: byDue);
   }
 
-  /// Собрать блок «ДЗ» для одного урока.
-  ///
-  ///   • groupByDue == false — то, что задали на этом уроке:
-  ///     sourceHomeworkIds (id из homeworks_to_give) → byId.
-  ///   • groupByDue == true — то, что надо сдать к этой дате и по этому
-  ///     предмету: byDue[iso(date)] с фильтром по subjectId.
+  /// groupByDue == false — ДЗ, заданные на уроке (sourceHomeworkIds → byId);
+  /// true — что сдать к этой дате по предмету (byDue + фильтр по subjectId).
   static ({
     List<String> texts,
     List<int> ids,

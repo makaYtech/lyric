@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../models/student_profile.dart';
+import '../../domain/people/student_profile.dart';
 import '../common/info_tile.dart';
 import '../common/person_avatar.dart';
-import 'schools_tile.dart';
+import './schools_tile.dart';
 
 class ProfileCard extends StatelessWidget {
   final StudentProfile profile;
@@ -12,20 +12,14 @@ class ProfileCard extends StatelessWidget {
   /// не открывает picker.
   final String? avatarKey;
 
-  const ProfileCard({
-    super.key,
-    required this.profile,
-    this.avatarKey,
-  });
+  const ProfileCard({super.key, required this.profile, this.avatarKey});
 
   @override
   Widget build(BuildContext context) {
     return Card(
       elevation: 1,
       clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

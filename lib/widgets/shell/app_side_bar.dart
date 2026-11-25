@@ -17,9 +17,8 @@ class SideBarItem {
   });
 }
 
-/// Пункт меню, которое открывается по нажатию на пользователя внизу панели.
-/// Список передаётся снаружи: для родителя сюда же встанет переключатель
-/// детей, а сам виджет менять не придётся.
+/// Пункт меню по нажатию на пользователя внизу панели. Список передаётся
+/// снаружи, чтобы родитель мог добавить переключатель детей.
 class SideBarUserAction {
   final IconData icon;
   final String label;
@@ -47,17 +46,15 @@ class SideBarToggle {
   });
 }
 
-/// Боковая панель для широких окон.
-///
-/// Сверху вниз: кнопка раскрытия (если [onToggleExpanded] != null),
-/// вкладки, пустое место, обновление, настройки, пользователь.
-/// Ширина анимируется между [collapsedWidth] и [expandedWidth].
+/// Боковая панель для широких окон. Сверху вниз: кнопка раскрытия (если
+/// [onToggleExpanded] != null), вкладки, пустое место, обновление,
+/// настройки, пользователь. Ширина анимируется.
 class AppSideBar extends StatelessWidget {
   static const double collapsedWidth = 72;
   static const double expandedWidth = 248;
 
-  /// Подписи показываем только когда панель реально широкая,
-  /// иначе в процессе анимации Row ругался бы на overflow.
+  /// Подписи показываем только на широкой панели, иначе Row overflow'ит
+  /// в процессе анимации.
   static const double _labelThreshold = 170;
 
   final List<SideBarItem> items;
@@ -142,9 +139,8 @@ class AppSideBar extends StatelessWidget {
                         alignment: Alignment.centerLeft,
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-                          // Фиксированные 48×48 — как у вкладок. Иначе на desktop
-                          // compact-density ужимает кнопку до 40 px, и иконка
-                          // оказывается на 4 px левее остальных.
+                          // Фиксированные 48×48 — как у вкладок: compact-density
+                          // на desktop иначе ужимает кнопку до 40 px.
                           child: IconButton(
                             icon: Icon(expanded ? Icons.menu_open : Icons.menu),
                             tooltip: expanded ? 'Свернуть' : 'Развернуть',
@@ -268,15 +264,14 @@ class AppSideBar extends StatelessWidget {
     if (i != null) userActions[i].onTap();
   }
 
-  /// Пользователь внизу панели. Нажатие — профиль (отдельной вкладки
-  /// «Профиль» в панели нет), «⋮» или правый клик — меню действий.
+  /// Пользователь внизу панели: тап — профиль, «⋮» или правый клик — меню.
   Widget _buildUser(BuildContext context, bool showLabels) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
     final fg = userSelected ? cs.onSecondaryContainer : cs.onSurface;
 
-    // Геометрия: пилюля шириной 48 (при ширине панели 72), внутри аватар 32
-    // с отступом 8 — центр аватара ровно там же, где центры иконок вкладок.
+    // Пилюля 48 внутри панели 72, аватар 32 с отступом 8 — центры иконок
+    // вкладок и аватара совпадают.
     final tile = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Material(
@@ -378,7 +373,7 @@ class _Tile extends StatelessWidget {
         : (color ?? cs.onSurfaceVariant);
 
     // Windows: прямоугольник с радиусом 4 и 3-пиксельная «пилюля» акцента
-    // слева у выбранного пункта — как в NavigationView у «Параметров».
+    // слева у выбранного пункта — как в NavigationView.
     final ShapeBorder shape = win
         ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(4))
         : const StadiumBorder();

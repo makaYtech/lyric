@@ -24,7 +24,7 @@ class SchoolsTile extends StatelessWidget {
           Text('—', style: theme.textTheme.titleMedium)
         else
           ...schools.map(
-                (name) => Padding(
+            (name) => Padding(
               padding: const EdgeInsets.only(bottom: 6),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,

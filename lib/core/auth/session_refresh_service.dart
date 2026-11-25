@@ -1,13 +1,9 @@
-import 'epos_oauth_client.dart';
-import 'epos_session.dart';
-import 'epos_session_storage.dart';
+import './epos_oauth_client.dart';
+import './epos_session.dart';
+import './epos_session_storage.dart';
 
-/// Оркестратор жизненного цикла сессии.
-///
-/// Умеет только одно: "обновить access_token по refresh_token". С появлением
-/// device-token-флоу тут ничего не меняется — тот flow обслуживается
-/// AuthCoordinator'ом напрямую (ему WebView не нужен, только три HTTP-запроса
-/// в exchange). Методы этого класса остаются для legacy-сессий.
+/// Оркестратор жизненного цикла legacy-сессии: обновление access_token
+/// по refresh_token. Device-token flow обслуживает AuthCoordinator напрямую.
 class SessionRefreshService {
   SessionRefreshService._();
   static final instance = SessionRefreshService._();
@@ -21,8 +17,8 @@ class SessionRefreshService {
     if (!current.needsRefresh) return current;
     final refreshed = await _refreshInternal(current);
     // Не удалось обновить (нет сети и т.п.) — не роняем сессию целиком:
-    // auth_token отдельный и часто ещё жив, а офлайн-режим и так подтянет
-    // данные из локального кэша по year_id.
+    // auth_token отдельный и часто ещё жив, а офлайн-данные подтянутся
+    // из локального кэша.
     return refreshed ?? current;
   }
 
@@ -57,13 +53,10 @@ class SessionRefreshService {
     }
   }
 
-  /// Собирает EposSession из уже полученных кусков.
-  /// Вызывается из старого login_screen после того, как WebView прошёл
-  /// обе фазы (PKCE + edu-epos) и у нас на руках code и cookies.
+  /// Собирает EposSession из уже полученных кусков (legacy PKCE-логин).
   ///
-  /// cookies — необязательны: для legacy-флоу ApiClient пойдёт по
-  /// header-пути (Auth-Token/Profile-Id), а cookies подхватятся при
-  /// первом renew.
+  /// cookies необязательны: для legacy-флоу ApiClient пойдёт по header-пути,
+  /// а cookies подхватятся при первом renew.
   Future<EposSession> buildAndSave({
     required String code,
     required String verifier,

@@ -2,13 +2,13 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart';
 
-import '../../models/teacher.dart';
-import 'app_database.dart';
+import '../../domain/people/teacher.dart';
+import './app_database.dart';
+import './dao_utils.dart';
 
-/// Учителя хранятся по годам целиком: перезаписываем весь список при
-/// каждом refresh. Учителей мало (десятки), вложенные структуры
-/// (предметы/кабинеты/классы/роли) держим JSON-строками — читаются
-/// они всегда вместе с учителем, отдельных выборок по ним нет.
+/// Учителя хранятся по годам целиком. Вложенные структуры (предметы,
+/// кабинеты, классы, роли) — JSON-строками: читаются всегда вместе с
+/// учителем, отдельных выборок по ним нет.
 class TeacherDao {
   Future<void> saveAll(int yearId, List<Teacher> teachers) async {
     final db = await AppDatabase.instance.database;
@@ -24,30 +24,24 @@ class TeacherDao {
       final batch = txn.batch();
       for (final t in teachers) {
         if (t.id == 0) continue;
-        batch.insert(
-          AppDatabase.tableTeachers,
-          {
-            'id': t.id,
-            'year_id': yearId,
-            'full_name': t.fullName,
-            'workload': t.workload,
-            'hired_at': t.hiredAt?.toIso8601String(),
-            'is_newcomer': t.isNewcomer ? 1 : 0,
-            'building_name': t.buildingName,
-            'building_address': t.buildingAddress,
-            'roles_json': jsonEncode(t.roles),
-            'subjects_json': jsonEncode(t.subjects),
-            'managed_classes_json': jsonEncode(
-              t.managedClasses.map((c) => c.toJson()).toList(),
-            ),
-            'rooms_json': jsonEncode(
-              t.rooms.map((r) => r.toJson()).toList(),
-            ),
-            'owned_room_ids_json': jsonEncode(t.ownedRoomIds.toList()),
-            'updated_at': now,
-          },
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        batch.insert(AppDatabase.tableTeachers, {
+          'id': t.id,
+          'year_id': yearId,
+          'full_name': t.fullName,
+          'workload': t.workload,
+          'hired_at': t.hiredAt?.toIso8601String(),
+          'is_newcomer': t.isNewcomer ? 1 : 0,
+          'building_name': t.buildingName,
+          'building_address': t.buildingAddress,
+          'roles_json': jsonEncode(t.roles),
+          'subjects_json': jsonEncode(t.subjects),
+          'managed_classes_json': jsonEncode(
+            t.managedClasses.map((c) => c.toJson()).toList(),
+          ),
+          'rooms_json': jsonEncode(t.rooms.map((r) => r.toJson()).toList()),
+          'owned_room_ids_json': jsonEncode(t.ownedRoomIds.toList()),
+          'updated_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await batch.commit(noResult: true);
     });
@@ -66,16 +60,12 @@ class TeacherDao {
 
   Future<DateTime?> lastUpdated(int yearId) async {
     final db = await AppDatabase.instance.database;
-    final rows = await db.query(
+    return lastUpdatedAt(
+      db,
       AppDatabase.tableTeachers,
-      columns: ['updated_at'],
       where: 'year_id = ?',
       whereArgs: [yearId],
-      orderBy: 'updated_at DESC',
-      limit: 1,
     );
-    if (rows.isEmpty) return null;
-    return DateTime.tryParse(rows.first['updated_at'] as String);
   }
 
   Teacher _fromRow(Map<String, dynamic> r) => Teacher(
@@ -84,8 +74,9 @@ class TeacherDao {
     subjects: _stringList(r['subjects_json']),
     rooms: _mapList(r['rooms_json']).map(TeacherRoom.fromJson).toList(),
     ownedRoomIds: _intSet(r['owned_room_ids_json']),
-    managedClasses:
-    _mapList(r['managed_classes_json']).map(ManagedClass.fromJson).toList(),
+    managedClasses: _mapList(r['managed_classes_json'])
+        .map(ManagedClass.fromJson)
+        .toList(),
     roles: _stringList(r['roles_json']),
     workload: r['workload'] as int? ?? 0,
     hiredAt: _date(r['hired_at']),

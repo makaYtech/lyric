@@ -4,12 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../window/mica.dart';
 
-/// Платформенный «характер» оформления.
-///
-/// Виджеты везде остаются Material 3, а меняется только ThemeData:
-/// радиусы, плотность, обводки вместо теней, шрифт и реакция на нажатие.
-/// На Windows дополнительно подменяются нейтральные поверхности на серые
-/// Fluent (как в «Параметрах»), а акцент остаётся из выбранной темы.
+/// Платформенный «характер» оформления: меняется только ThemeData (радиусы,
+/// плотность, обводки, шрифт), виджеты везде остаются Material 3.
 enum AppPlatformStyle {
   /// Android и всё остальное: стандартный Material 3.
   material,
@@ -36,11 +32,8 @@ ThemeData applyPlatformStyle(ThemeData base, {AppPlatformStyle? style}) {
   };
 }
 
-// ── Windows / Fluent ──────────────────────────────────────────────────────
-//
-// Числа взяты из WinUI 3: ControlCornerRadius = 4, OverlayCornerRadius = 8,
-// кнопки 32 px высотой, карточки — полупрозрачная заливка + обводка 1 px,
-// поверхности нейтрально-серые (без оттенка акцента, как в Material 3).
+// Windows / Fluent: числа из WinUI 3 — ControlCornerRadius = 4,
+// OverlayCornerRadius = 8, кнопки 32 px, поверхности нейтрально-серые.
 
 ColorScheme _fluentNeutrals(ColorScheme cs, bool dark) {
   return cs.copyWith(
@@ -77,8 +70,8 @@ ThemeData _windows(ThemeData base) {
   final dark = base.brightness == Brightness.dark;
   final cs = _fluentNeutrals(base.colorScheme, dark);
 
-  // Пересобираем ThemeData с новой схемой, а не copyWith: иначе цвета текста,
-  // разделителей и hover останутся вычисленными из старой схемы.
+  // Пересобираем ThemeData с новой схемой: copyWith оставил бы цвета
+  // текста, разделителей и hover вычисленными из старой.
   final t = ThemeData(useMaterial3: true, colorScheme: cs);
 
   const r4 = BorderRadius.all(Radius.circular(4));
@@ -90,8 +83,7 @@ ThemeData _windows(ThemeData base) {
     EdgeInsets.symmetric(horizontal: 12),
   );
 
-  // Fluent: карточка = полупрозрачная заливка + тонкая обводка. Поверх Mica
-  // она даёт тот самый «слоёный» вид, как у плиток в Параметрах.
+  // Fluent: карточка = полупрозрачная заливка + тонкая обводка.
   final cardFill = dark ? const Color(0x0DFFFFFF) : const Color(0xB3FFFFFF);
   final cardStroke = dark ? const Color(0x19000000) : const Color(0x0F000000);
   // Flyout (диалоги, меню, подсказки) — сплошные.
@@ -212,7 +204,7 @@ ThemeData _windows(ThemeData base) {
   );
 }
 
-// ── Linux ─────────────────────────────────────────────────────────────────
+// Linux: мягкие скругления в духе libadwaita.
 
 ThemeData _linux(ThemeData base) {
   final cs = base.colorScheme;

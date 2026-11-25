@@ -1,31 +1,21 @@
-import '../../services/auth_service.dart';
+import '../../data/services/epos/auth_service.dart';
 
-/// Полная сессия ЭПОСа. Заменяет связку «EposTokens + отдельные поля».
+/// Полная сессия ЭПОСа.
 ///
-/// Основной механизм аутентификации — cookies (aid, auth_token,
-/// long_token, profile_id, is_auth, from_sudir, RSESSION, waf_cookie,
-/// SERVERID), которые сервер устанавливает в /authenticate и
-/// финализирующих запросах. Заголовки Auth-Token/Profile-Id —
-/// fallback для legacy OAuth-сессий.
-///
-/// Что именно на руках — определяется наличием [deviceToken]:
-///   deviceToken непустой → новый flow, refresh = GET /authenticate
-///   deviceToken null/''   → старый flow, refresh = OAuth refresh_token
+/// Что на руках — определяется наличием [deviceToken]:
+///   deviceToken непустой → device-token flow, refresh = GET /authenticate;
+///   deviceToken null/''   → legacy OAuth, refresh = refresh_token.
 class EposSession {
-  /// UUID из diaryperm://redirect?token=...
-  /// Нужен для POST /authenticate/student_profile (в body auth_token
-  /// идёт ИМЕННО он, а не hex из cookie).
+  /// UUID из diaryperm://redirect?token=... В POST /authenticate/student_profile
+  /// в body auth_token идёт именно он, а не hex из cookie.
   final String authToken;
 
   final String profileId;
 
-  /// UUID, который уходит в заголовке token при GET /authenticate.
-  /// Пустая строка или null трактуются как «device-token отсутствует».
+  /// UUID для заголовка token при GET /authenticate.
   final String? deviceToken;
 
-  /// Все cookies, установленные сервером. Ключ — имя, значение — значение.
-  /// Формат хранения — Map, потому что при запросах порядок не важен,
-  /// а обновление из Set-Cookie удобнее делать по имени.
+  /// Все cookies сервера: имя → значение.
   final Map<String, String> cookies;
 
   /// OAuth-токены (client_id=auth). Для device-token-сессии — null.
@@ -33,7 +23,6 @@ class EposSession {
   final String? refreshToken;
   final DateTime? accessExpiresAt;
 
-  /// Опционально — то, что может пригодиться позже.
   final String? longToken;
   final int? userId;
 
@@ -49,22 +38,18 @@ class EposSession {
     this.userId,
   });
 
-  /// "aid=14; auth_token=...; profile_id=..." — то, что кладётся
-  /// в заголовок Cookie.
+  /// "aid=14; auth_token=...; profile_id=..." для заголовка Cookie.
   String get cookieHeader =>
       cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
 
-  /// Совместимость со старым кодом (ApiClient, сервисы).
   EposTokens get tokens => EposTokens(
     authToken: authToken,
     profileId: profileId,
     cookieHeader: cookieHeader,
   );
 
-  /// Device-token-сессию не обновляем проактивно: её срок неизвестен.
-  /// Ловим 401 от API — тогда AuthCoordinator сходит за свежими cookie.
-  ///
-  /// Legacy-сессию обновляем за 2 минуты до истечения access_token.
+  /// Device-token-сессию не обновляем проактивно: её срок неизвестен,
+  /// ловим 401. Legacy обновляем за 2 минуты до истечения access_token.
   bool get needsRefresh {
     if (deviceToken?.isNotEmpty == true) return false;
     final exp = accessExpiresAt;
@@ -72,21 +57,14 @@ class EposSession {
     return DateTime.now().isAfter(exp.subtract(const Duration(minutes: 2)));
   }
 
-  /// Полнота сессии нового flow: есть непустой deviceToken И в cookies
-  /// есть и auth_token, и profile_id. Без этого API-запросы заведомо
-  /// провалятся, но exchange по deviceToken вернёт всё нужное.
+  /// Для API нужны непустой deviceToken и auth_token/profile_id в cookies.
   bool get isCompleteForApi =>
       deviceToken?.isNotEmpty == true &&
       cookies.containsKey('auth_token') &&
       cookies.containsKey('profile_id');
 
-  /// Нужно ли дотянуть cookies через exchange по deviceToken.
-  /// True для сессий нового flow, где cookies отсутствуют или в них нет
-  /// ключевых полей — типичный случай при переходе со старой версии
-  /// приложения, которая эти cookies не сохраняла.
-  ///
-  /// Legacy-сессии (deviceToken отсутствует) сюда не попадают: они ходят
-  /// через заголовки Auth-Token/Profile-Id, и cookie-backfill им не нужен.
+  /// Нужно ли дотянуть cookies через exchange по deviceToken. Legacy-сессии
+  /// сюда не попадают: они ходят через заголовки Auth-Token/Profile-Id.
   bool get needsCookieBackfill =>
       deviceToken?.isNotEmpty == true && !isCompleteForApi;
 

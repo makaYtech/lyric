@@ -2,17 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/settings/teacher_prefs.dart';
 import '../../core/util/names.dart';
-import '../../models/teacher.dart';
+import '../../domain/people/teacher.dart';
 import '../common/person_avatar.dart';
 import '../../core/settings/avatar_storage.dart';
 
-/// Карточка учителя. Компактный вид: аватарка, «Фамилия И. О.» и
-/// первый предмет. Раскрытый вид: аватарка, полное ФИО, роли, нагрузка,
-/// классрук, предметы, кабинеты, школа.
-///
-/// Списки предметов/кабинетов по умолчанию показываются до лимита из
-/// настроек; «Ещё N» в карточке раскрывает список локально, не трогая
-/// настройки. Лимит «Показать всё» отключает кнопку.
+/// Карточка учителя. Компактный вид: аватарка, короткое имя, первый
+/// предмет. Раскрытый — полное ФИО, роли, нагрузка, классрук, предметы,
+/// кабинеты, школа. «Ещё N» раскрывает список локально, не трогая настройки.
 class TeacherCard extends StatefulWidget {
   final Teacher teacher;
 
@@ -91,8 +87,9 @@ class _TeacherCardState extends State<TeacherCard> {
                                 const SizedBox(height: 2),
                                 Text(
                                   teacher.primarySubject ?? '—',
-                                  style: theme.textTheme.bodySmall
-                                      ?.copyWith(color: dim),
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: dim,
+                                  ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -124,8 +121,8 @@ class _TeacherCardState extends State<TeacherCard> {
                                   limit: subjectsLimit,
                                   localExpand: _subjectsExpanded,
                                   onToggle: () => setState(
-                                        () => _subjectsExpanded =
-                                    !_subjectsExpanded,
+                                    () =>
+                                        _subjectsExpanded = !_subjectsExpanded,
                                   ),
                                 ),
                                 const SizedBox(height: 12),
@@ -137,7 +134,7 @@ class _TeacherCardState extends State<TeacherCard> {
                                   limit: roomsLimit,
                                   localExpand: _roomsExpanded,
                                   onToggle: () => setState(
-                                        () => _roomsExpanded = !_roomsExpanded,
+                                    () => _roomsExpanded = !_roomsExpanded,
                                   ),
                                 ),
                                 if (teacher.buildingName != null) ...[
@@ -273,13 +270,15 @@ class _InfoBlock extends StatelessWidget {
     final theme = Theme.of(context);
     final dim = theme.colorScheme.onSurfaceVariant;
 
-    final limited = limit != TeacherPrefs.allValue &&
+    final limited =
+        limit != TeacherPrefs.allValue &&
         !localExpand &&
         allItems.length > limit;
 
     final visible = limited ? allItems.sublist(0, limit) : allItems;
     final hidden = allItems.length - visible.length;
-    final canCollapse = localExpand &&
+    final canCollapse =
+        localExpand &&
         limit != TeacherPrefs.allValue &&
         allItems.length > limit;
 
@@ -309,24 +308,15 @@ class _InfoBlock extends StatelessWidget {
                   ),
                 ),
                 Expanded(
-                  child: Text(
-                    visible[i],
-                    style: theme.textTheme.bodyMedium,
-                  ),
+                  child: Text(visible[i], style: theme.textTheme.bodyMedium),
                 ),
               ],
             ),
           ),
         if (hidden > 0)
-          _ShowMoreLink(
-            label: 'Ещё $hidden',
-            onTap: onToggle,
-          )
+          _ShowMoreLink(label: 'Ещё $hidden', onTap: onToggle)
         else if (canCollapse)
-          _ShowMoreLink(
-            label: 'Свернуть',
-            onTap: onToggle,
-          ),
+          _ShowMoreLink(label: 'Свернуть', onTap: onToggle),
       ],
     );
   }

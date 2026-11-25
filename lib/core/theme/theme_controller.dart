@@ -2,16 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Пользовательский выбор оформления. Отдельный enum, а не ThemeMode:
-/// «Material» — это не «светлая/тёмная/системная», а отдельный режим.
-/// Он следует системной светлой/тёмной теме И берёт акцентные цвета
-/// из палитры Android 12+ (Material You / dynamic color).
+/// «Material» — режим с динамическими цветами Android 12+.
 enum AppThemeChoice { light, dark, system, material }
 
-/// Хранит и сохраняет выбранную тему приложения между запусками.
-/// По умолчанию — тёмная (по просьбе).
-///
-/// «Material» — ЕДИНСТВЕННЫЙ режим, где подключаются динамические цвета
-/// устройства. Для light/dark/system используется фиксированный seed.
+/// Хранит выбранную тему между запусками. По умолчанию — тёмная.
+/// Динамические цвета (Material You) — только в режиме «Material».
 class ThemeController extends ChangeNotifier {
   static const _prefsKey = 'theme_mode';
 
@@ -20,8 +15,7 @@ class ThemeController extends ChangeNotifier {
 
   AppThemeChoice get choice => _choice;
 
-  /// Что передать в `MaterialApp.themeMode`.
-  /// «Material» следует системной светлой/тёмной теме.
+  /// Что передать в `MaterialApp.themeMode`; «Material» следует системе.
   ThemeMode get mode => switch (_choice) {
     AppThemeChoice.light => ThemeMode.light,
     AppThemeChoice.dark => ThemeMode.dark,
@@ -29,8 +23,7 @@ class ThemeController extends ChangeNotifier {
     AppThemeChoice.material => ThemeMode.system,
   };
 
-  /// Подключать ли динамические цвета (Material You). true — только
-  /// при явном выборе «Material»; иначе всегда фиксированный seed.
+  /// Динамические цвета — только при явном выборе «Material».
   bool get useMaterialYou => _choice == AppThemeChoice.material;
 
   static Future<ThemeController> load() async {

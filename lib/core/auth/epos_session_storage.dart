@@ -2,27 +2,26 @@ import 'dart:convert';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import 'epos_session.dart';
+import './epos_session.dart';
 
-/// Хранит EposSession в системном keychain/keystore.
-/// Refresh_token — очень чувствительный, SharedPreferences не годится.
+/// Хранит EposSession в системном keychain/keystore: refresh_token
+/// слишком чувствителен для SharedPreferences.
 class EposSessionStorage {
   static const _key = 'epos_session_v1';
   final FlutterSecureStorage _storage;
 
   EposSessionStorage({FlutterSecureStorage? storage})
-      : _storage = storage ??
-      const FlutterSecureStorage(
-        aOptions: AndroidOptions(encryptedSharedPreferences: true),
-      );
+    : _storage =
+          storage ??
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
 
   Future<EposSession?> load() async {
     final raw = await _storage.read(key: _key);
     if (raw == null) return null;
     try {
-      return EposSession.fromJson(
-        jsonDecode(raw) as Map<String, dynamic>,
-      );
+      return EposSession.fromJson(jsonDecode(raw) as Map<String, dynamic>);
     } catch (_) {
       await _storage.delete(key: _key);
       return null;

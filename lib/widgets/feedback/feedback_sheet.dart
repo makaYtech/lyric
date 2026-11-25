@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../services/feedback_service.dart';
+import '../../data/services/feedback/feedback_service.dart';
 import '../shell/adaptive_sheet.dart';
 
 /// Открывает окно обратной связи. На узком экране — нижняя шторка,

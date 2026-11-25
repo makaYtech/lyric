@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../models/teacher.dart';
-import 'teacher_card.dart';
+import '../../domain/people/teacher.dart';
+import './teacher_card.dart';
 
-/// Блок «Учителя» под карточкой профиля: заголовок, тонкий divider,
-/// список маленьких карточек.
-///
-/// Если учителей нет — возвращает пустой виджет, чтобы не рисовать
-/// сиротский заголовок с дивайдером в пустоту.
+/// Блок «Учителя» под профилем. Если учителей нет — пустой виджет,
+/// чтобы не рисовать сиротский заголовок.
 class TeachersSection extends StatelessWidget {
   final List<Teacher> teachers;
 

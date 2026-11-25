@@ -1,16 +1,17 @@
-import '../../models/bells_timetable.dart';
-import '../../models/lesson.dart';
+import '../../domain/schedule/bells_timetable.dart';
+import '../../domain/schedule/lesson.dart';
 import '../settings/schedule_prefs.dart';
+import '../util/date_time.dart';
 
 /// Фоллбэк-начало дня, если bells недоступны.
 const _fallbackDayStartMinutes = 8 * 60 + 30; // 8:30
 
 /// Вставляет окна в список уроков дня.
 List<Lesson> injectGaps(
-    List<Lesson> lessons, {
-      BellsTimetable? bells,
-      int? weekDayId,
-    }) {
+  List<Lesson> lessons, {
+  BellsTimetable? bells,
+  int? weekDayId,
+}) {
   if (!SchedulePrefs.showGaps.value) return lessons;
 
   final threshold = SchedulePrefs.gapThresholdMinutes.value;
@@ -20,17 +21,19 @@ List<Lesson> injectGaps(
 
   // Окно перед первым уроком.
   if (lessons.isNotEmpty) {
-    final firstStart = _toMin(lessons.first.startTime);
+    final firstStart = minutesFromHhmm(lessons.first.startTime);
     if (firstStart != null) {
       final gap = firstStart - dayStart;
       if (gap > threshold) {
-        out.add(Lesson(
-          id: gapId--,
-          startTime: _minToHhmm(dayStart),
-          endTime: lessons.first.startTime,
-          subject: 'Окно',
-          isGap: true,
-        ));
+        out.add(
+          Lesson(
+            id: gapId--,
+            startTime: _minToHhmm(dayStart),
+            endTime: lessons.first.startTime,
+            subject: 'Окно',
+            isGap: true,
+          ),
+        );
       }
     }
   }
@@ -44,20 +47,22 @@ List<Lesson> injectGaps(
     final b = lessons[i + 1];
     if (a.isGap || b.isGap) continue;
 
-    final endA = _toMin(a.endTime);
-    final startB = _toMin(b.startTime);
+    final endA = minutesFromHhmm(a.endTime);
+    final startB = minutesFromHhmm(b.startTime);
     if (endA == null || startB == null) continue;
 
     final gap = startB - endA;
     if (gap <= threshold) continue;
 
-    out.add(Lesson(
-      id: gapId--,
-      startTime: a.endTime,
-      endTime: b.startTime,
-      subject: 'Окно',
-      isGap: true,
-    ));
+    out.add(
+      Lesson(
+        id: gapId--,
+        startTime: a.endTime,
+        endTime: b.startTime,
+        subject: 'Окно',
+        isGap: true,
+      ),
+    );
   }
 
   return out;
@@ -67,21 +72,7 @@ int _resolveDayStart(BellsTimetable? bells, int? weekDayId) {
   if (bells == null || weekDayId == null) return _fallbackDayStartMinutes;
   final s = bells.firstLessonStart(weekDayId);
   if (s == null) return _fallbackDayStartMinutes;
-  final m = _toMin(s);
-  return m ?? _fallbackDayStartMinutes;
+  return minutesFromHhmm(s) ?? _fallbackDayStartMinutes;
 }
 
-int? _toMin(String hhmm) {
-  final parts = hhmm.split(':');
-  if (parts.length != 2) return null;
-  final h = int.tryParse(parts[0]);
-  final m = int.tryParse(parts[1]);
-  if (h == null || m == null) return null;
-  return h * 60 + m;
-}
-
-String _minToHhmm(int total) {
-  final h = total ~/ 60;
-  final m = total % 60;
-  return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}';
-}
+String _minToHhmm(int total) => hhmm(total ~/ 60, total % 60);

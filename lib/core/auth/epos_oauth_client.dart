@@ -15,7 +15,7 @@ class EposOAuthClient {
       'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36';
 
-  // ── PKCE ──────────────────────────────────────────────────────────
+  // PKCE
 
   static String generateVerifier() {
     final rnd = Random.secure();
@@ -34,23 +34,21 @@ class EposOAuthClient {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
-  Uri buildAuthUrl({
-    required String challenge,
-    required String state,
-  }) =>
-      Uri.parse('$_authBase$_realm/protocol/openid-connect/auth')
-          .replace(queryParameters: {
-        'response_type': 'code',
-        'client_id': _clientId,
-        'state': state,
-        'scope': 'openid offline_access',
-        'redirect_uri': _redirectUri,
-        'code_challenge': challenge,
-        'code_challenge_method': 'S256',
-        'response_mode': 'fragment',
-      });
+  Uri buildAuthUrl({required String challenge, required String state}) =>
+      Uri.parse('$_authBase$_realm/protocol/openid-connect/auth').replace(
+        queryParameters: {
+          'response_type': 'code',
+          'client_id': _clientId,
+          'state': state,
+          'scope': 'openid offline_access',
+          'redirect_uri': _redirectUri,
+          'code_challenge': challenge,
+          'code_challenge_method': 'S256',
+          'response_mode': 'fragment',
+        },
+      );
 
-  // ── exchange & refresh ─────────────────────────────────────────────
+  // exchange & refresh
 
   Future<TokenSet> exchangeCode({
     required String code,
@@ -70,8 +68,8 @@ class EposOAuthClient {
     return TokenSet.fromJson(body);
   }
 
-  /// Проверено вручную curl'ом: grant_type=refresh_token с офлайн-ключом
-  /// отдаёт свежий access_token/refresh_token чистым REST, без браузера.
+  /// grant_type=refresh_token с офлайн-ключом отдаёт свежие токены
+  /// чистым REST, без браузера.
   Future<TokenSet> refresh(String refreshToken) async {
     final body = await _postToken(
       body: {
@@ -95,8 +93,10 @@ class EposOAuthClient {
       final req = await client.postUrl(
         Uri.parse('$_authBase$_realm/protocol/openid-connect/token'),
       );
-      req.headers.contentType =
-          ContentType('application', 'x-www-form-urlencoded');
+      req.headers.contentType = ContentType(
+        'application',
+        'x-www-form-urlencoded',
+      );
       req.headers.set('accept', '*/*');
       req.headers.set('origin', _authBase);
       req.headers.set('referer', '$_authBase/');
@@ -104,10 +104,14 @@ class EposOAuthClient {
       for (final e in cookies.entries) {
         req.cookies.add(Cookie(e.key, e.value));
       }
-      req.write(body.entries
-          .map((e) =>
-      '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}')
-          .join('&'));
+      req.write(
+        body.entries
+            .map(
+              (e) =>
+                  '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+            )
+            .join('&'),
+      );
 
       final resp = await req.close();
       final raw = await resp.transform(utf8.decoder).join();
@@ -116,10 +120,9 @@ class EposOAuthClient {
         return jsonDecode(raw) as Map<String, dynamic>;
       }
 
-      // Единственный сигнал, что офлайн-ключ РЕАЛЬНО мёртв (отозван/
-      // просрочен) — явный invalid_grant от Keycloak. Всё остальное
-      // (5xx, WAF, неожиданное тело) — считаем сетевой проблемой,
-      // а не поводом требовать интерактивный вход.
+      // Офлайн-ключ РЕАЛЬНО мёртв только при явном invalid_grant.
+      // 5xx, WAF и неожиданное тело — сетевая проблема, не повод
+      // требовать интерактивный вход.
       String? errorCode;
       try {
         final decoded = jsonDecode(raw);
@@ -140,8 +143,8 @@ class EposOAuthClient {
     } on EposOAuthNetworkException {
       rethrow;
     } catch (e) {
-      // SocketException, TimeoutException, HandshakeException, обрыв
-      // соединения и т.п. — сеть недоступна прямо сейчас, ключ ни при чём.
+      // SocketException, TimeoutException, HandshakeException, обрыв —
+      // сеть недоступна, ключ ни при чём.
       throw EposOAuthNetworkException('$e');
     } finally {
       client.close();

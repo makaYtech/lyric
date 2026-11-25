@@ -1,14 +1,13 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../../models/homework_attachment.dart';
-import '../../services/attachment_service.dart';
-import '../../services/homework_attachments_service.dart';
+import '../../domain/homework/homework_attachment.dart';
+import '../../data/services/media/attachment_service.dart';
+import '../../data/services/media/homework_attachments_service.dart';
 import '../shell/adaptive_sheet.dart';
 
-/// Блок «Моя работа» — файлы, которые ученик сдаёт по этому ДЗ.
-/// Самодостаточен: сам тянет актуальный список с сервера, сам
-/// прикрепляет и удаляет. Снаружи нужен только id student_homework.
+/// Блок «Моя работа» — файлы, которые ученик сдаёт по ДЗ. Сам тянет
+/// список с сервера, прикрепляет и удаляет.
 class MyWorkSection extends StatefulWidget {
   final int studentHomeworkId;
 

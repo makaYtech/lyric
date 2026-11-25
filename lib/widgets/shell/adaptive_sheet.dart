@@ -5,25 +5,16 @@ import 'package:flutter/material.dart';
 import '../../core/layout/adaptive.dart';
 import '../../core/settings/layout_prefs.dart';
 
-/// Строит содержимое модалки.
-///
-/// [scrollController] приходит НЕ null только при `draggable: true` — его
-/// надо повесить на главный прокручиваемый виджет внутри (как раньше с
-/// DraggableScrollableSheet).
+/// [scrollController] приходит не null только при `draggable: true` — его
+/// надо повесить на главный прокручиваемый виджет внутри.
 typedef AdaptiveSheetBuilder = Widget Function(
   BuildContext context,
   ScrollController? scrollController,
 );
 
-/// Единая точка для всех «шторок» приложения.
-///
-/// Узкое окно (< [AdaptiveLayout.sideBarBreakpoint]) — как раньше, нижняя
-/// шторка (`showModalBottomSheet`).
-/// Широкое окно:
-///  * `draggable: true` (детали урока/ДЗ и т.п.) — боковая панель, въезжает
-///    со стороны, противоположной боковому меню;
-///  * иначе (оценка, пропуск, список файлов, обновление) — диалог по центру.
-/// И то и другое закрывается крестиком, Esc и кликом по затемнению.
+/// Единая точка для всех «шторок». Узкое окно — нижняя шторка; широкое —
+/// боковая панель для `draggable: true`, иначе диалог по центру.
+/// Закрывается крестиком, Esc и кликом по затемнению.
 Future<T?> showAdaptiveSheet<T>(
   BuildContext context, {
   required AdaptiveSheetBuilder builder,
@@ -36,8 +27,7 @@ Future<T?> showAdaptiveSheet<T>(
   bool dismissible = true,
   bool showDragHandle = true,
 
-  /// Содержимое само умеет прокручиваться (внутри свой SingleChildScrollView).
-  /// Иначе в диалоге оно будет обёрнуто в прокрутку автоматически.
+  /// Содержимое само прокручивается; иначе диалог обернёт его в скролл.
   bool selfScrolling = false,
   double dialogWidth = 480,
   double panelWidth = 460,
@@ -194,8 +184,7 @@ class _SidePanel extends StatefulWidget {
 }
 
 class _SidePanelState extends State<_SidePanel> {
-  // Своя прокрутка для содержимого: те же шторки, что и на мобильном,
-  // ждут scrollController от DraggableScrollableSheet.
+  // Своя прокрутка: шторки ждут scrollController от DraggableScrollableSheet.
   final _scroll = ScrollController();
 
   @override

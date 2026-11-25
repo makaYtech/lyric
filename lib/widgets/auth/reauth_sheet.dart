@@ -25,7 +25,7 @@ class ReauthSheet extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Сервер ЭПОСа завершил предыдущую сессию. '
-                  'Войдите заново, чтобы продолжить работу.',
+              'Войдите заново, чтобы продолжить работу.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),

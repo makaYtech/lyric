@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import '../../services/auth_service.dart';
-import 'device_token_auth.dart';
-import 'epos_oauth_client.dart';
-import 'epos_session.dart';
-import 'session_notifier.dart';
-import 'session_refresh_service.dart';
+import '../../data/services/epos/auth_service.dart';
+import './device_token_auth.dart';
+import './epos_oauth_client.dart';
+import './epos_session.dart';
+import './session_notifier.dart';
+import './session_refresh_service.dart';
 
 enum RenewOutcome {
   /// Токены обновлены, запрос можно повторять.
@@ -27,18 +27,12 @@ enum RenewOutcome {
 
 /// Единственный владелец живой сессии и единственная точка её обновления.
 ///
-/// Два режима refresh, переключаются по EposSession.deviceToken:
+/// Режим refresh выбирается по EposSession.deviceToken:
+///   device-token — GET /authenticate → POST student_profile → GET loginEom;
+///   legacy OAuth — POST /token (refresh_token) + Phase C в скрытом WebView.
 ///
-///   device-token (новый):
-///     Трёхшаговый exchange — GET /authenticate, POST student_profile,
-///     GET loginEom. См. DeviceTokenAuthService.exchange.
-///
-///   legacy OAuth (старый):
-///     1. POST /token, grant_type=refresh_token (чистый Dart).
-///     2. Phase C: скрытый WebView на edu-epos/authenticate/oauth.
-///
-/// renew() дедуплицирован: сколько бы запросов одновременно ни поймали
-/// 401, реальное обновление выполнится один раз, остальные подождут его.
+/// renew() дедуплицирован: сколько бы запросов ни поймали 401, реальное
+/// обновление выполнится один раз, остальные подождут.
 class AuthCoordinator {
   AuthCoordinator._();
   static final instance = AuthCoordinator._();
@@ -65,9 +59,8 @@ class AuthCoordinator {
     _session = session;
   }
 
-  /// Сбросить сессию из памяти. Secure storage чистится отдельно
-  /// (SessionRefreshService.clear()), этот метод — только про in-memory
-  /// состояние и про отмену висящей Phase C.
+  /// Сбросить сессию из памяти; secure storage чистится отдельно
+  /// (SessionRefreshService.clear()).
   void clear() {
     _finishPhaseC(RenewOutcome.networkError);
     _session = null;
@@ -93,16 +86,12 @@ class AuthCoordinator {
     final current = _session;
     if (current == null) return RenewOutcome.networkError;
 
-    // ── Новый flow: exchange device-token → свежие cookie ────────────────
     if (current.deviceToken != null) {
       return _renewViaDeviceToken(current);
     }
 
-    // ── Legacy OAuth flow (PKCE + refresh_token + Phase C) ──────────────
     return _renewViaOAuth(current);
   }
-
-  // ── Device-token flow ──────────────────────────────────────────────────
 
   Future<RenewOutcome> _renewViaDeviceToken(EposSession current) async {
     final result = await DeviceTokenAuthService.instance.exchange(
@@ -126,13 +115,10 @@ class AuthCoordinator {
     return RenewOutcome.networkError;
   }
 
-  // ── Legacy OAuth flow ──────────────────────────────────────────────────
-
   Future<RenewOutcome> _renewViaOAuth(EposSession current) async {
     final rt = current.refreshToken;
     if (rt == null) return RenewOutcome.authDead;
 
-    // Шаг 1: офлайн-ключ, чистый REST.
     final TokenSet tokens;
     try {
       tokens = await _oauth.refresh(rt).timeout(const Duration(seconds: 20));
@@ -151,7 +137,7 @@ class AuthCoordinator {
     _session = withTokens;
     await _storage.save(withTokens);
 
-    // Шаг 2: Phase C в скрытом WebView.
+    // Phase C в скрытом WebView.
     final webView = await _waitForWebView();
     if (webView == null) {
       // WebView ещё не смонтирован (гонка при самом старте приложения) —
@@ -189,8 +175,8 @@ class AuthCoordinator {
     return null;
   }
 
-  /// Вызывается из AuthWebViewHost.onPageFinished. Работает только если
-  /// сейчас идёт legacy Phase C (иначе completer == null и мы выходим).
+  /// Вызывается из AuthWebViewHost.onPageFinished, работает только во
+  /// время legacy Phase C.
   Future<void> onPageFinished(String url) async {
     final completer = _phaseC;
     final webView = _webView;
@@ -231,8 +217,8 @@ class AuthCoordinator {
     _finishPhaseC(RenewOutcome.success);
   }
 
-  /// Явная сетевая ошибка на главном фрейме (нет интернета, DNS и т.п.) —
-  /// не ждём таймаут, сразу считаем это сетевой проблемой.
+  /// Сетевая ошибка главного фрейма (нет интернета, DNS) — не ждём
+  /// таймаут.
   void onWebResourceError(WebResourceError error) {
     if (error.isForMainFrame == false) return;
     final completer = _phaseC;
@@ -267,12 +253,10 @@ class AuthCoordinator {
   }
 }
 
-/// Невидимый WebView, постоянно висящий в дереве HomeScreen.
+/// Невидимый WebView в дереве HomeScreen.
 ///
-/// Нужен ТОЛЬКО для legacy-сессий: когда сессия была получена старым
-/// PKCE-флоу, refresh делается через Phase C в этом WebView. Для
-/// device-token-сессий он просто висит без дела (никаких loadRequest
-/// без вызова снаружи не происходит) — но не мешает.
+/// Нужен только для legacy-сессий: их refresh идёт через Phase C. Для
+/// device-token-сессий просто висит без дела.
 class AuthWebViewHost extends StatefulWidget {
   const AuthWebViewHost({super.key});
 
