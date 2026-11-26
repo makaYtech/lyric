@@ -20,8 +20,9 @@ abstract final class AdaptiveLayout {
   static bool get isDesktopOS =>
       Platform.isLinux || Platform.isWindows || Platform.isMacOS;
 
-  /// Кнопка «свернуть/развернуть» в панели. На Android её нет.
-  static bool get canToggleSideBar => !Platform.isAndroid;
+  /// Кнопка «свернуть/развернуть» в панели. Доступна на всех платформах,
+  /// включая Android — панель должна уметь раскрываться и на телефоне.
+  static bool get canToggleSideBar => true;
 
   /// webview_flutter есть только на Android и iOS; на desktop
   /// WebViewController() падает assert'ом.

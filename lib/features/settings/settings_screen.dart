@@ -434,16 +434,6 @@ class SettingsScreen extends StatelessWidget {
               _SettingsCard(
                 children: [
                   ValueListenableBuilder<bool>(
-                    valueListenable: LayoutPrefs.sideBarOnRight,
-                    builder: (_, right, _) => SwitchListTile(
-                      title: const Text('Панель справа'),
-                      subtitle: const Text('По умолчанию — слева'),
-                      value: right,
-                      onChanged: LayoutPrefs.setSideBarOnRight,
-                    ),
-                  ),
-                  const Divider(height: 1),
-                  ValueListenableBuilder<bool>(
                     valueListenable: LayoutPrefs.sideBarExpanded,
                     builder: (_, expanded, _) => SwitchListTile(
                       title: const Text('Показывать названия'),

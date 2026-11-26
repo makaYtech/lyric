@@ -154,19 +154,30 @@ class AppSideBar extends StatelessWidget {
                       )
                     else
                       const SizedBox(height: 12),
-                    for (var i = 0; i < items.length; i++)
-                      _Tile(
-                        icon: Icon(
-                          i == selectedIndex
-                              ? items[i].selectedIcon
-                              : items[i].icon,
+                    // Вкладки скроллятся: на телефоне в ландшафте высоты панели
+                    // (~366 px) не хватает, чтобы всё влезло без прокрутки.
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < items.length; i++)
+                              _Tile(
+                                icon: Icon(
+                                  i == selectedIndex
+                                      ? items[i].selectedIcon
+                                      : items[i].icon,
+                                ),
+                                label: items[i].label,
+                                selected: i == selectedIndex,
+                                showLabel: showLabels,
+                                onTap: () => onSelected(i),
+                              ),
+                            const SizedBox(height: 24),
+                          ],
                         ),
-                        label: items[i].label,
-                        selected: i == selectedIndex,
-                        showLabel: showLabels,
-                        onTap: () => onSelected(i),
                       ),
-                    const Spacer(),
+                    ),
                     for (final t in toggles)
                       _Tile(
                         icon: Icon(t.icon),

@@ -346,6 +346,9 @@ class _HomeScreenState extends State<HomeScreen> {
         final onRight = LayoutPrefs.sideBarOnRight.value;
         final expanded = LayoutPrefs.sideBarExpanded.value;
         final profile = _controller.profile;
+        // Развёрнутая панель на узком экране не должна съедать весь контент,
+        // поэтому ограничиваем её ширину долей окна.
+        final width = _sideBarWidth(context, expanded);
 
         final bar = AppSideBar(
           items: _sideBarItems,
@@ -354,9 +357,7 @@ class _HomeScreenState extends State<HomeScreen> {
           userSelected: _controller.tabIndex == 0,
           onUserTap: () => _onTabSelected(0),
           expanded: expanded,
-          onToggleExpanded: AdaptiveLayout.canToggleSideBar
-              ? () => LayoutPrefs.setSideBarExpanded(!expanded)
-              : null,
+          onToggleExpanded: () => LayoutPrefs.setSideBarExpanded(!expanded),
           onRight: onRight,
           needsAuth: _session.needsAuth,
           isLoading: _controller.anyLoading,
@@ -393,16 +394,13 @@ class _HomeScreenState extends State<HomeScreen> {
         // плавно растёт поверх. Если анимировать ширину в Row, дневник,
         // оценки и колонки ДЗ пересчитывались бы на каждом кадре анимации —
         // это и давало лаги при раскрытии меню.
-        final barWidth = expanded
-            ? AppSideBar.expandedWidth
-            : AppSideBar.collapsedWidth;
         return ColoredBox(
           color: Theme.of(context).scaffoldBackgroundColor,
           child: Stack(
             children: [
               Positioned.fill(
-                left: onRight ? 0 : barWidth,
-                right: onRight ? barWidth : 0,
+                left: onRight ? 0 : width,
+                right: onRight ? width : 0,
                 child: content,
               ),
               Positioned(
@@ -410,13 +408,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 bottom: 0,
                 left: onRight ? null : 0,
                 right: onRight ? 0 : null,
-                child: bar,
+                // Фиксируем ширину панели под текущий layout, чтобы анимация
+                // раскрытия не выходила за границы и не перекрывала контент.
+                child: SizedBox(width: width, child: bar),
               ),
             ],
           ),
         );
       },
     );
+  }
+
+  /// Ширина боковой панели. Свёрнутая — всегда иконки. Развёрнутая — 248,
+  /// но не шире разумной доли окна: иначе на телефоне панель съест контент.
+  double _sideBarWidth(BuildContext context, bool expanded) {
+    if (!expanded) return AppSideBar.collapsedWidth;
+    final available = MediaQuery.sizeOf(context).width;
+    final maxShare = available * (available < 600 ? 0.6 : 0.45);
+    return AppSideBar.expandedWidth < maxShare
+        ? AppSideBar.expandedWidth
+        : maxShare;
   }
 
   Widget _buildPages(bool wide) {

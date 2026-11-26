@@ -153,6 +153,9 @@ class _CenteredDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _CloseBar(closable: closable),
+              // Flexible + min высота: содержимое может быть ниже, чем
+              // доступное место, но никогда не выше — иначе Column с
+              // фиксированной _CloseBar переполняет диалог снизу.
               Flexible(
                 child: selfScrolling
                     ? child
