@@ -1,9 +1,24 @@
 import 'dart:io';
 
+import 'package:webview_flutter/webview_flutter.dart';
+
 /// Всё, что решает «какой интерфейс показывать». Раскладка выбирается по
 /// ширине окна, а не по платформе; платформа — только для реально
 /// платформенных вещей (кнопка панели, webview).
 abstract final class AdaptiveLayout {
+  /// true — платформенная реализация webview_flutter зарегистрирована.
+  /// На desktop плагин есть в pubspec, но WebViewController создавать
+  /// нельзя — бросает assert. В unit-тестах тоже false.
+  static bool get hasWebView {
+    if (!webViewSupported) return false;
+    try {
+      WebViewPlatform.instance;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// С этой ширины нижний бар заменяется боковой панелью (граница
   /// «expanded» у Material 3).
   static const double sideBarBreakpoint = 840;

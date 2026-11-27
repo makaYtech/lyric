@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/theme_controller.dart';
 import '../../widgets/auth/device_auth_view.dart';
-import '../home/home_screen.dart';
+import './session_gate.dart';
 
-/// Первый вход по device-token flow: после успеха заменяет себя HomeScreen.
+/// Первый вход по device-token flow: после успеха отдаёт сессию SessionGate.
 class DeviceLoginScreen extends StatelessWidget {
   final ThemeController themeController;
 
@@ -17,7 +17,7 @@ class DeviceLoginScreen extends StatelessWidget {
       onSession: (ctx, session) => Navigator.of(ctx).pushReplacement(
         MaterialPageRoute(
           builder: (_) =>
-              HomeScreen(session: session, themeController: themeController),
+              SessionGate(session: session, themeController: themeController),
         ),
       ),
     );

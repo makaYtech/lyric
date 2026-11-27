@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/auth/device_token_auth.dart';
 import '../../core/auth/epos_session.dart';
 import '../../core/auth/session_refresh_service.dart';
 import '../../core/layout/adaptive.dart';
-import './desktop_login_panel.dart';
+import './manual_login_dialog.dart';
 
 /// Общий WebView-flow входа по device-token.
 ///
@@ -41,12 +42,9 @@ class _DeviceAuthViewState extends State<DeviceAuthView> {
   }
 
   Future<void> _init() async {
-    // На desktop вход идёт в отдельном окне (DesktopLoginPanel),
-    // WebViewController тут создавать нельзя — он упадёт assert'ом.
-    if (!AdaptiveLayout.webViewSupported) {
-      _status = 'Открываю окно входа...';
-      return;
-    }
+    // Платформенного webview нет (desktop, тесты) — оставляем только
+    // хоткей ручного token-входа.
+    if (!AdaptiveLayout.hasWebView) return;
     try {
       final c = await DeviceTokenAuthService.instance.createLoginController(
         onStatus: (s) {
@@ -62,13 +60,21 @@ class _DeviceAuthViewState extends State<DeviceAuthView> {
     }
   }
 
-  Future<void> _onTokenFound(String deviceToken) async {
-    if (_busy || _done) return;
-    _busy = true;
-    if (mounted) setState(() => _status = 'Обмен токена на сессию...');
+  Future<void> _onTokenFound(String deviceToken) =>
+      _enterWithToken(deviceToken);
 
-    final result = await DeviceTokenAuthService.instance.exchange(deviceToken);
-    if (!mounted) return;
+  /// Обмен device-токена на полную сессию. null — не вышло, статус уже
+  /// выставлен. При ручном вводе profileId приходит от пользователя —
+  /// без него _doStudentProfile активирует не тот профиль.
+  Future<EposSession?> _buildDeviceSession(
+    String deviceToken, {
+    String? profileId,
+  }) async {
+    final result = await DeviceTokenAuthService.instance.exchange(
+      deviceToken,
+      profileId: profileId,
+    );
+    if (!mounted) return null;
 
     final payload = result.payload;
     if (payload == null) {
@@ -76,9 +82,8 @@ class _DeviceAuthViewState extends State<DeviceAuthView> {
         _status = result.dead
             ? widget.deadMessage
             : 'Сетевая ошибка: ${result.error ?? "неизвестно"}';
-        _busy = false;
       });
-      return;
+      return null;
     }
 
     final session = EposSession(
@@ -90,44 +95,94 @@ class _DeviceAuthViewState extends State<DeviceAuthView> {
       userId: int.tryParse(payload.cookies['user_id'] ?? ''),
     );
     await SessionRefreshService.instance.save(session);
+    if (!mounted) return null;
+    return session;
+  }
+
+  /// Вход по device-токену: обмен + передача сессии. Годится и для
+  /// отловленного deep-link, и для ручного ввода (тогда задан profileId).
+  Future<void> _enterWithToken(String deviceToken, {String? profileId}) async {
+    if (_busy || _done) return;
+    _busy = true;
+    if (mounted) setState(() => _status = 'Обмен токена на сессию...');
+
+    final session = await _buildDeviceSession(
+      deviceToken,
+      profileId: profileId,
+    );
     if (!mounted) return;
+    if (session == null) {
+      _busy = false;
+      return;
+    }
 
     _done = true;
     widget.onSession(context, session);
   }
 
+  Future<void> _openManualTokenDialog() async {
+    if (_busy || _done) return;
+    final creds = await showManualLoginDialog(context);
+    if (creds == null || !mounted) return;
+    await _enterWithToken(creds.token, profileId: creds.profileId);
+  }
+
   @override
   Widget build(BuildContext context) {
+    return _DevBindings(
+      onManualToken: _openManualTokenDialog,
+      child: _buildScaffold(),
+    );
+  }
+
+  Widget _buildScaffold() {
+    if (!AdaptiveLayout.hasWebView) {
+      return Scaffold(appBar: AppBar(title: const Text('Вход в ЭПОС')));
+    }
     return Scaffold(
       appBar: AppBar(title: const Text('Вход в ЭПОС')),
-      body: !AdaptiveLayout.webViewSupported
-          ? DesktopLoginPanel(
-              onTokenFound: _onTokenFound,
-              onStatus: (s) {
-                if (mounted && !_done) setState(() => _status = s);
-              },
-              status: _status,
-              busy: _busy,
-            )
-          : Column(
-              children: [
-                Expanded(
-                  child: _controller == null
-                      ? const Center(child: CircularProgressIndicator())
-                      : WebViewWidget(controller: _controller!),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8),
-                  child: Text(
-                    _status,
-                    style: const TextStyle(fontSize: 12),
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
+      body: Column(
+        children: [
+          Expanded(
+            child: _controller == null
+                ? const Center(child: CircularProgressIndicator())
+                : WebViewWidget(controller: _controller!),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(8),
+            child: Text(
+              _status,
+              style: const TextStyle(fontSize: 12),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Debug-хоткей на экране входа: Ctrl+Shift+D открывает ручной ввод
+/// device-токена. Не мешает обычному сценарию, для тестов без Госуслуг.
+class _DevBindings extends StatelessWidget {
+  final VoidCallback onManualToken;
+  final Widget child;
+
+  const _DevBindings({required this.onManualToken, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(
+          LogicalKeyboardKey.keyD,
+          control: true,
+          shift: true,
+        ): onManualToken,
+      },
+      child: Focus(autofocus: true, child: child),
     );
   }
 }

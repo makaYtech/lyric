@@ -2,28 +2,40 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import './profile_scope.dart';
+
 /// Кэш поверх SharedPreferences для статических и небольших данных:
 /// профиль, выбранный учебный год, настройки. Тяжёлые данные — в SQLite.
 ///
 /// JSON-методы ставят метку времени для lastUpdated(); int-методы — без неё.
+///
+/// `scoped: true` — данные конкретного профиля (оценки, годы, выбранный
+/// год): ключи получают префикс активного ребёнка/ученика. Настройки
+/// приложения остаются общими.
 class CacheService {
   static const _timestampSuffix = '_updated_at';
 
+  final bool scoped;
+
+  CacheService({this.scoped = false});
+
+  String _key(String key) => scoped ? ProfileScope.key(key) : key;
+
   Future<void> save(String key, Map<String, dynamic> json) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, jsonEncode(json));
-    await _touchTimestamp(prefs, key);
+    await prefs.setString(_key(key), jsonEncode(json));
+    await _touchTimestamp(prefs, _key(key));
   }
 
   Future<void> saveList(String key, List<Map<String, dynamic>> jsonList) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, jsonEncode(jsonList));
-    await _touchTimestamp(prefs, key);
+    await prefs.setString(_key(key), jsonEncode(jsonList));
+    await _touchTimestamp(prefs, _key(key));
   }
 
   Future<Map<String, dynamic>?> load(String key) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(key);
+    final raw = prefs.getString(_key(key));
     if (raw == null) return null;
     try {
       final decoded = jsonDecode(raw);
@@ -35,7 +47,7 @@ class CacheService {
 
   Future<List<dynamic>?> loadList(String key) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(key);
+    final raw = prefs.getString(_key(key));
     if (raw == null) return null;
     try {
       final decoded = jsonDecode(raw);
@@ -47,36 +59,36 @@ class CacheService {
 
   Future<DateTime?> lastUpdated(String key) async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('$key$_timestampSuffix');
+    final raw = prefs.getString('${_key(key)}$_timestampSuffix');
     if (raw == null) return null;
     return DateTime.tryParse(raw);
   }
 
   Future<void> saveInt(String key, int value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(key, value);
+    await prefs.setInt(_key(key), value);
   }
 
   Future<int?> loadInt(String key) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(key);
+    return prefs.getInt(_key(key));
   }
 
   Future<void> saveString(String key, String value) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, value);
+    await prefs.setString(_key(key), value);
   }
 
   Future<String?> loadString(String key) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(key);
+    return prefs.getString(_key(key));
   }
 
   /// Снести запись вместе с timestamp'ом (девелоперский сброс).
   Future<void> remove(String key) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(key);
-    await prefs.remove('$key$_timestampSuffix');
+    await prefs.remove(_key(key));
+    await prefs.remove('${_key(key)}$_timestampSuffix');
   }
 
   Future<void> _touchTimestamp(SharedPreferences prefs, String key) async {

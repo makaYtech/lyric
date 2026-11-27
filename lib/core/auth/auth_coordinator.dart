@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../data/services/epos/auth_service.dart';
+import '../layout/adaptive.dart';
 import './device_token_auth.dart';
 import './epos_oauth_client.dart';
 import './epos_session.dart';
@@ -104,6 +105,8 @@ class AuthCoordinator {
         cookies: payload.cookies,
         profileId: payload.profileId,
         longToken: payload.cookies['long_token'],
+        // renewBoundary: profileId обновляем, но выбранного ребёнка не
+        // теряем — иначе запросы уйдут родительским pid.
       );
       _session = updated;
       await _storage.save(updated);
@@ -209,6 +212,8 @@ class AuthCoordinator {
       accessExpiresAt: tokens.accessExpiresAt,
       longToken: cookies['long_token'] ?? base.longToken,
       userId: int.tryParse(cookies['user_id'] ?? '') ?? base.userId,
+      activeProfileId: base.activeProfileId,
+      accountType: base.accountType,
     );
 
     _session = updated;
@@ -265,12 +270,15 @@ class AuthWebViewHost extends StatefulWidget {
 }
 
 class _AuthWebViewHostState extends State<AuthWebViewHost> {
-  late final WebViewController _webView;
+  WebViewController? _webView;
 
   @override
   void initState() {
     super.initState();
-    _webView = WebViewController()
+    // На desktop/в тестах платформенного webview нет — WebViewController
+    // создавать нельзя, будет assert. Legacy-refresh там и не нужен.
+    if (!AdaptiveLayout.hasWebView) return;
+    final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setNavigationDelegate(
         NavigationDelegate(
@@ -278,17 +286,23 @@ class _AuthWebViewHostState extends State<AuthWebViewHost> {
           onWebResourceError: AuthCoordinator.instance.onWebResourceError,
         ),
       );
-    AuthCoordinator.instance.attachWebView(_webView);
+    _webView = controller;
+    AuthCoordinator.instance.attachWebView(controller);
   }
 
   @override
   void dispose() {
-    AuthCoordinator.instance.detachWebView(_webView);
+    final controller = _webView;
+    if (controller != null) {
+      AuthCoordinator.instance.detachWebView(controller);
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final controller = _webView;
+    if (controller == null) return const SizedBox.shrink();
     return Align(
       alignment: Alignment.topLeft,
       child: SizedBox(
@@ -296,7 +310,7 @@ class _AuthWebViewHostState extends State<AuthWebViewHost> {
         height: 1,
         child: Opacity(
           opacity: 0,
-          child: IgnorePointer(child: WebViewWidget(controller: _webView)),
+          child: IgnorePointer(child: WebViewWidget(controller: controller)),
         ),
       ),
     );

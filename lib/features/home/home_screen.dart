@@ -254,7 +254,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   listenable: needsHiddenWebView,
                   builder: (context, _) {
                     // На desktop webview_flutter не реализован — не монтируем.
-                    if (!AdaptiveLayout.webViewSupported) {
+                    if (!AdaptiveLayout.hasWebView) {
                       return const SizedBox.shrink();
                     }
                     final useDevice = AuthConfig.useDeviceTokenFlow.value;
@@ -377,7 +377,11 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ],
           userName: profile?.userName ?? 'Профиль',
-          userSubtitle: profile?.className,
+          userSubtitle: _controller.isParent
+              ? (profile == null || profile.className == '—'
+                    ? 'Родитель'
+                    : 'Родитель · ${profile.className}')
+              : profile?.className,
           userAvatarKey: AvatarStorage.studentKey(_controller.tokens.profileId),
           userActions: [
             if (_session.needsAuth)

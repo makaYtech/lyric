@@ -11,6 +11,17 @@ class AppDatabase {
   static const _fileName = 'epos_cache.db';
   static const _version = 18;
 
+  /// Активный профиль: отдельный файл БД на ученика/ребёнка.
+  /// null — старый общий файл (совместимость и тесты).
+  String? _profileId;
+
+  String get profileId => _profileId ?? '';
+
+  String _fileNameFor(String? profileId) =>
+      profileId == null || profileId.isEmpty
+      ? _fileName
+      : 'epos_cache_$profileId.db';
+
   static const tableLessons = 'lessons';
   static const tableGrades = 'grades';
   static const tableGradeHistory = 'grade_history';
@@ -41,6 +52,47 @@ class AppDatabase {
     }
   }
 
+  /// Переключает БД на профиль. Старый общий файл один раз переименовывается
+  /// в файл профиля, чтобы не потерять офлайн-кэш после обновления.
+  Future<void> switchProfile(
+    String profileId, {
+    bool migrateLegacy = false,
+  }) async {
+    if (_profileId == profileId) return;
+    await _close();
+    _profileId = profileId.isEmpty ? null : profileId;
+    final id = _profileId;
+    if (migrateLegacy && id != null) await _migrateLegacy(id);
+  }
+
+  Future<void> _close() async {
+    final opening = _opening;
+    if (opening != null) {
+      try {
+        await opening;
+      } catch (_) {}
+    }
+    final db = _db;
+    _db = null;
+    _opening = null;
+    if (db != null) await db.close();
+  }
+
+  Future<void> _migrateLegacy(String profileId) async {
+    final dir = await _databaseDirectory();
+    final legacy = File(p.join(dir.path, _fileName));
+    if (!await legacy.exists()) return;
+    final target = File(p.join(dir.path, _fileNameFor(profileId)));
+    if (await target.exists()) return;
+    for (final suffix in const ['', '-wal', '-shm']) {
+      final from = File('${legacy.path}$suffix');
+      if (!await from.exists()) continue;
+      try {
+        await from.rename('${target.path}$suffix');
+      } catch (_) {}
+    }
+  }
+
   /// Android/iOS — «Документы» приложения: там уже есть БД у существующих
   /// пользователей, путь менять нельзя. Desktop — каталог данных приложения:
   /// не засоряет «Документы» и не требует xdg-user-dir на Linux.
@@ -55,7 +107,7 @@ class AppDatabase {
 
   Future<Database> _open() async {
     final dir = await _databaseDirectory();
-    final path = p.join(dir.path, _fileName);
+    final path = p.join(dir.path, _fileNameFor(_profileId));
     try {
       return await _openAt(path);
     } catch (_) {
@@ -396,5 +448,22 @@ class AppDatabase {
     await db.delete(tableScheduleOverrides);
     await db.delete(tableBells);
     await db.delete(tableAttendances);
+  }
+
+  /// Удаляет кэш всех профилей (logout / полный сброс).
+  Future<void> clearAllProfiles() async {
+    await _close();
+    final dir = await _databaseDirectory();
+    if (await dir.exists()) {
+      await for (final entity in dir.list()) {
+        if (entity is! File) continue;
+        final name = p.basename(entity.path);
+        if (!name.startsWith('epos_cache')) continue;
+        try {
+          await entity.delete();
+        } catch (_) {}
+      }
+    }
+    _profileId = null;
   }
 }

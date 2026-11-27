@@ -94,7 +94,13 @@ class DeviceTokenAuthService {
 
   /// Полный обмен: GET /authenticate → POST student_profile → GET loginEom.
   /// Возвращает ВСЕ cookies за три запроса.
-  Future<DeviceExchangeResult> exchange(String deviceToken) async {
+  ///
+  /// [profileId] — для ручного ввода токена: cookie сервера может быть
+  /// пустой или чужой, а шаг student_profile активирует именно профиль.
+  Future<DeviceExchangeResult> exchange(
+    String deviceToken, {
+    String? profileId,
+  }) async {
     final client = await createEposRawHttpClient();
     try {
       final step1 = await _doAuthenticate(client, deviceToken);
@@ -103,22 +109,25 @@ class DeviceTokenAuthService {
       if (cookies == null || cookies.isEmpty) {
         return const DeviceExchangeResult.network('authenticate: пусто');
       }
-      final profileId = cookies['profile_id'];
-      if (profileId == null || profileId.isEmpty) {
+      final resolved = (profileId != null && profileId.isNotEmpty)
+          ? profileId
+          : cookies['profile_id'];
+      if (resolved == null || resolved.isEmpty) {
         return const DeviceExchangeResult.authDead();
       }
+      cookies['profile_id'] = resolved;
 
       await _doStudentProfile(
         client,
         cookies: cookies,
         deviceToken: deviceToken,
-        profileId: profileId,
+        profileId: resolved,
       );
 
-      await _doLoginEom(client, cookies: cookies, profileId: profileId);
+      await _doLoginEom(client, cookies: cookies, profileId: resolved);
 
       return DeviceExchangeResult.success(
-        DeviceExchangePayload(cookies: cookies, profileId: profileId),
+        DeviceExchangePayload(cookies: cookies, profileId: resolved),
       );
     } catch (e) {
       return DeviceExchangeResult.network('$e');

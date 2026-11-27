@@ -34,6 +34,7 @@ class DebugTools {
   static const _userAgent = 'okhttp/4.12.0';
 
   final _cache = CacheService();
+  final _scopedCache = CacheService(scoped: true);
 
   Future<DebugSnapshot> snapshot() async {
     final epos = await SessionRefreshService.instance.load();
@@ -83,6 +84,8 @@ class DebugTools {
       accessExpiresAt: null,
       longToken: s.longToken,
       userId: s.userId,
+      activeProfileId: s.activeProfileId,
+      accountType: s.accountType,
     );
     await _save(next);
   }
@@ -101,6 +104,8 @@ class DebugTools {
       accessExpiresAt: s.accessExpiresAt,
       longToken: null,
       userId: s.userId,
+      activeProfileId: s.activeProfileId,
+      accountType: s.accountType,
     );
     await _save(next);
   }
@@ -120,11 +125,12 @@ class DebugTools {
     final client = await createEposRawHttpClient();
     try {
       final req = await client.getUrl(Uri.parse('$_eposBase$path'));
-      if (s.cookieHeader.isNotEmpty) {
-        req.headers.set('Cookie', s.cookieHeader);
+      final tokens = s.tokens;
+      if (tokens.cookieHeader.isNotEmpty) {
+        req.headers.set('Cookie', tokens.cookieHeader);
       } else {
-        req.headers.set('Auth-Token', s.authToken);
-        req.headers.set('Profile-Id', s.profileId);
+        req.headers.set('Auth-Token', tokens.authToken);
+        req.headers.set('Profile-Id', tokens.profileId);
       }
       req.headers.set('User-Agent', _userAgent);
       final resp = await req.close().timeout(const Duration(seconds: 10));
@@ -140,9 +146,11 @@ class DebugTools {
   Future<void> resetDeviceKey() =>
       DeviceTokenAuthService.instance.resetDeviceKey();
 
-  Future<void> clearProfileCache() => _cache.remove('profile');
-  Future<void> clearAcademicYearsCache() => _cache.remove('academic_years');
-  Future<void> clearStudentGroupsCache() => _cache.remove('student_groups');
+  Future<void> clearProfileCache() => _scopedCache.remove('profile');
+  Future<void> clearAcademicYearsCache() =>
+      _scopedCache.remove('academic_years');
+  Future<void> clearStudentGroupsCache() =>
+      _scopedCache.remove('student_groups');
 
   Future<void> clearAvatarCache() async {
     final prefs = await SharedPreferences.getInstance();
@@ -203,7 +211,7 @@ class DebugTools {
     await SessionRefreshService.instance.clear();
     await _cache.clearAll();
     AvatarStorage.invalidateAll();
-    await AppDatabase.instance.clearAll();
+    await AppDatabase.instance.clearAllProfiles();
     if (alsoDeviceKey) {
       await DeviceTokenAuthService.instance.resetDeviceKey();
     }

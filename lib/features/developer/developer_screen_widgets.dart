@@ -182,6 +182,8 @@ class _SessionStatusTile extends StatelessWidget {
           _row(theme, 'device_token', _presence(s.deviceToken)),
           _row(theme, 'auth_token (UUID)', _presence(s.authToken)),
           _row(theme, 'profile_id', s.profileId),
+          _row(theme, 'account_type', s.accountType ?? '—'),
+          _row(theme, 'active_profile_id', s.activeProfileId ?? '—'),
           _row(theme, 'OAuth-пара', oauth),
           const SizedBox(height: 12),
           _label(theme, 'Cookies (${cookies.length})'),

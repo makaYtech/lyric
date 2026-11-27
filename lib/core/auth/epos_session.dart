@@ -26,6 +26,13 @@ class EposSession {
   final String? longToken;
   final int? userId;
 
+  /// Профиль, от имени которого идут запросы. У ученика совпадает с
+  /// [profileId], у родителя — id выбранного ребёнка.
+  final String? activeProfileId;
+
+  /// 'student' / 'parent'. null — роль ещё не определена.
+  final String? accountType;
+
   const EposSession({
     required this.authToken,
     required this.profileId,
@@ -36,16 +43,27 @@ class EposSession {
     this.accessExpiresAt,
     this.longToken,
     this.userId,
+    this.activeProfileId,
+    this.accountType,
   });
+
+  bool get isParent => accountType == 'parent';
+
+  String get requestProfileId => activeProfileId ?? profileId;
 
   /// "aid=14; auth_token=...; profile_id=..." для заголовка Cookie.
   String get cookieHeader =>
       cookies.entries.map((e) => '${e.key}=${e.value}').join('; ');
 
+  /// Cookie-заголовок запросов: profile_id заменён на активный профиль.
+  String get requestCookieHeader =>
+      replaceCookieValue(cookieHeader, 'profile_id', requestProfileId);
+
   EposTokens get tokens => EposTokens(
     authToken: authToken,
-    profileId: profileId,
-    cookieHeader: cookieHeader,
+    profileId: requestProfileId,
+    cookieHeader: requestCookieHeader,
+    userId: userId,
   );
 
   /// Device-token-сессию не обновляем проактивно: её срок неизвестен,
@@ -78,6 +96,8 @@ class EposSession {
     DateTime? accessExpiresAt,
     String? longToken,
     int? userId,
+    String? activeProfileId,
+    String? accountType,
   }) => EposSession(
     authToken: authToken ?? this.authToken,
     profileId: profileId ?? this.profileId,
@@ -88,6 +108,8 @@ class EposSession {
     accessExpiresAt: accessExpiresAt ?? this.accessExpiresAt,
     longToken: longToken ?? this.longToken,
     userId: userId ?? this.userId,
+    activeProfileId: activeProfileId ?? this.activeProfileId,
+    accountType: accountType ?? this.accountType,
   );
 
   Map<String, dynamic> toJson() => {
@@ -100,6 +122,8 @@ class EposSession {
     'access_expires_at': accessExpiresAt?.toIso8601String(),
     'long_token': longToken,
     'user_id': userId,
+    'active_profile_id': activeProfileId,
+    'account_type': accountType,
   };
 
   factory EposSession.fromJson(Map<String, dynamic> j) {
@@ -121,6 +145,8 @@ class EposSession {
       accessExpiresAt: expRaw is String ? DateTime.tryParse(expRaw) : null,
       longToken: j['long_token'] as String?,
       userId: j['user_id'] as int?,
+      activeProfileId: j['active_profile_id'] as String?,
+      accountType: j['account_type'] as String?,
     );
   }
 }

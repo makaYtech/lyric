@@ -109,7 +109,7 @@ class SettingsScreen extends StatelessWidget {
     await SessionRefreshService.instance.clear();
     await CacheService().clearAll();
     AvatarStorage.invalidateAll();
-    await AppDatabase.instance.clearAll();
+    await AppDatabase.instance.clearAllProfiles();
     SessionNotifier.instance.reset();
 
     if (!context.mounted) return;

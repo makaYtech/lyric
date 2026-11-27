@@ -10,7 +10,7 @@ class AcademicYearsRepository {
 
   AcademicYearsRepository({AcademicYearsService? service, CacheService? cache})
     : _service = service ?? AcademicYearsService(),
-      _cache = cache ?? CacheService();
+      _cache = cache ?? CacheService(scoped: true);
 
   Future<List<AcademicYear>?> loadCached() async {
     final json = await _cache.loadList(_cacheKey);

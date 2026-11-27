@@ -10,7 +10,7 @@ class ProfileRepository {
 
   ProfileRepository({ProfileService? service, CacheService? cache})
     : _service = service ?? ProfileService(),
-      _cache = cache ?? CacheService();
+      _cache = cache ?? CacheService(scoped: true);
 
   Future<StudentProfile?> loadCached() async {
     final json = await _cache.load(_cacheKey);

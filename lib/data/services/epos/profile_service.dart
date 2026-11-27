@@ -1,4 +1,5 @@
 import '../../../core/network/api_client.dart';
+import '../../../domain/people/account_context.dart';
 import '../../../domain/people/student_profile.dart';
 import './api_endpoints.dart';
 import './auth_service.dart';
@@ -28,34 +29,17 @@ class ProfileService {
           tokens,
           attempts: 1,
         );
-        map['profiles'] = _extractProfiles(userJson);
+        map['school_names'] = EposAccountContext.fromUsersResponse(userJson)
+            .profiles
+            .map((p) => p.schoolShortname)
+            .whereType<String>()
+            .toSet()
+            .toList();
       } catch (_) {
         // Школы не критичны — профиль покажем и без них.
       }
     }
 
     return StudentProfile.fromJson(map);
-  }
-
-  /// profiles[] из ответа acl/api/users: List, Map с 'data' или Map с 'users'.
-  List<dynamic> _extractProfiles(dynamic userJson) {
-    dynamic root = userJson;
-
-    if (root is Map<String, dynamic>) {
-      root = root['data'] ?? root['users'] ?? root;
-    }
-
-    if (root is List) {
-      final all = <dynamic>[];
-      for (final user in root) {
-        if (user is Map<String, dynamic>) {
-          final profiles = user['profiles'];
-          if (profiles is List) all.addAll(profiles);
-        }
-      }
-      return all;
-    }
-
-    return const [];
   }
 }

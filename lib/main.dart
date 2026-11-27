@@ -16,8 +16,8 @@ import './core/theme/platform_style.dart';
 import './core/theme/theme_controller.dart';
 import './core/window/desktop_window.dart';
 import './core/window/mica.dart';
-import './features/home/home_screen.dart';
 import './features/auth/login_screen.dart';
+import './features/auth/session_gate.dart';
 
 Future<void> main(List<String> args) async {
   // Окно входа desktop_webview_window запускает вторым экземпляром
@@ -74,7 +74,7 @@ class EposApp extends StatelessWidget {
           animation: themeController,
           builder: (context, _) {
             final home = initialEposSession != null
-                ? HomeScreen(
+                ? SessionGate(
                     session: initialEposSession!,
                     themeController: themeController,
                   )

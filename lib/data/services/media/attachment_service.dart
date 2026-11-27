@@ -97,11 +97,12 @@ class AttachmentService {
         'Accept': '*/*',
         'User-Agent': _userAgent,
       };
-      if (session.cookieHeader.isNotEmpty) {
-        headers['Cookie'] = session.cookieHeader;
+      final tokens = session.tokens;
+      if (tokens.cookieHeader.isNotEmpty) {
+        headers['Cookie'] = tokens.cookieHeader;
       } else {
-        headers['Auth-Token'] = session.authToken;
-        headers['Profile-Id'] = session.profileId;
+        headers['Auth-Token'] = tokens.authToken;
+        headers['Profile-Id'] = tokens.profileId;
       }
 
       final req = http.Request('GET', Uri.parse(url))..headers.addAll(headers);

@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/auth/epos_oauth_client.dart';
 import '../../core/auth/epos_session.dart';
 import '../../core/auth/session_refresh_service.dart';
 import '../../core/auth/webview_cookies.dart';
+import '../../core/layout/adaptive.dart';
+import './manual_login_dialog.dart';
 
 /// LEGACY PKCE flow: Keycloak → edu-epos в одном WebView.
 ///
@@ -41,7 +44,10 @@ class _PkceAuthViewState extends State<PkceAuthView> {
   late final String _verifier;
   late final String _challenge;
   late final String _state;
-  late final WebViewController _controller;
+
+  /// null — платформенного webview нет (desktop, тесты): создавать
+  /// WebViewController нельзя, будет assert.
+  WebViewController? _controller;
 
   _Phase _phase = _Phase.pkce;
   String _status = 'Загрузка...';
@@ -58,6 +64,9 @@ class _PkceAuthViewState extends State<PkceAuthView> {
     _verifier = EposOAuthClient.generateVerifier();
     _challenge = EposOAuthClient.challengeFor(_verifier);
     _state = EposOAuthClient.generateState();
+
+    // Платформенного webview нет — остаётся только хоткей ручного входа.
+    if (!AdaptiveLayout.hasWebView) return;
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -119,6 +128,8 @@ class _PkceAuthViewState extends State<PkceAuthView> {
   }
 
   Future<void> _handlePkcePhase(String url) async {
+    final controller = _controller;
+    if (controller == null) return;
     if (!url.contains('auth-epos.permkrai.ru')) return;
     final uri = Uri.tryParse(url);
     if (uri == null || uri.fragment.isEmpty) return;
@@ -136,7 +147,7 @@ class _PkceAuthViewState extends State<PkceAuthView> {
     // Сохраняем куки auth-epos — понадобятся для exchange.
     // document.cookie не видит HttpOnly, но для /token-запроса
     // Keycloak принимает заголовки как основной канал.
-    _authEposCookies = await readDocumentCookies(_controller);
+    _authEposCookies = await readDocumentCookies(controller);
     _code = code;
 
     // Фаза 2: грузим edu-epos-flow в тот же WebView.
@@ -145,7 +156,7 @@ class _PkceAuthViewState extends State<PkceAuthView> {
     _phase = _Phase.eduEpos;
     if (mounted) setState(() => _status = 'Получение сессии ЭПОС...');
     _armTimeout();
-    await _controller.loadRequest(
+    await controller.loadRequest(
       Uri.parse(
         'https://edu-epos.permkrai.ru/authenticate/oauth'
         '?mode=epos&groupRole=student',
@@ -154,11 +165,13 @@ class _PkceAuthViewState extends State<PkceAuthView> {
   }
 
   Future<void> _handleEduPhase(String url) async {
+    final controller = _controller;
+    if (controller == null) return;
     // Ждём, пока WebView окажется на edu-epos (не на /authenticate).
     if (!url.contains('edu-epos.permkrai.ru')) return;
     if (url.contains('/authenticate/')) return;
 
-    final cookies = await readDocumentCookies(_controller);
+    final cookies = await readDocumentCookies(controller);
     final authToken = cookies['auth_token'];
     final profileId = cookies['profile_id'];
 
@@ -193,18 +206,65 @@ class _PkceAuthViewState extends State<PkceAuthView> {
     }
   }
 
+  /// Ручной вход по auth_token-хексу (debug): минуя Госуслуги и Keycloak.
+  /// OAuth-пары нет, поэтому refresh недоступен — при 401 понадобится
+  /// повторный вход.
+  Future<void> _openManualTokenDialog() async {
+    if (_busy || _failed) return;
+    final creds = await showManualLoginDialog(context);
+    if (creds == null || !mounted) return;
+
+    _phase = _Phase.done;
+    _busy = true;
+    _timeoutTimer?.cancel();
+    if (mounted) setState(() => _status = 'Сохранение сессии...');
+
+    final session = EposSession(
+      authToken: creds.token,
+      profileId: creds.profileId,
+    );
+    await _refreshService.save(session);
+    if (!mounted) return;
+    widget.onSession(context, session);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Вход в ЭПОС')),
-      body: _failed ? _buildFailure(context) : _buildWebView(),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(
+          LogicalKeyboardKey.keyD,
+          control: true,
+          shift: true,
+        ): _openManualTokenDialog,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          appBar: AppBar(title: const Text('Вход в ЭПОС')),
+          body: _failed ? _buildFailure(context) : _buildWebView(),
+        ),
+      ),
     );
   }
 
   Widget _buildWebView() {
+    final controller = _controller;
+    if (controller == null) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'WebView недоступен на этой платформе.\n'
+            'Ctrl+Shift+D — вход по токену.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
+    }
     return Column(
       children: [
-        Expanded(child: WebViewWidget(controller: _controller)),
+        Expanded(child: WebViewWidget(controller: controller)),
         Padding(
           padding: const EdgeInsets.all(8),
           child: Text(

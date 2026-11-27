@@ -76,13 +76,25 @@ class HomeController extends ChangeNotifier {
        _bellsRepository = bellsRepository ?? BellsRepository(),
        _attendanceRepository = attendanceRepository ?? AttendanceRepository(),
        _ecHomeworkService = ecHomeworkService ?? EcHomeworkService(),
-       _cache = cache ?? CacheService() {
+       _cache = cache ?? CacheService(scoped: true) {
     _weekStart = currentMonday();
   }
 
   EposSession _session;
   EposSession get session => AuthCoordinator.instance.session ?? _session;
   EposTokens get tokens => session.tokens;
+
+  bool get isParent => session.isParent;
+
+  /// Диагностика: активный профиль и его источник. Помогает понять, почему
+  /// запрос ушёл не тем pid.
+  String get debugProfileInfo {
+    final s = session;
+    return 'type=${s.accountType ?? "?"} '
+        'login=${s.profileId} '
+        'active=${s.activeProfileId ?? "—"} '
+        'pid=${s.requestProfileId}';
+  }
 
   final void Function(String message) _onError;
 
@@ -258,6 +270,7 @@ class HomeController extends ChangeNotifier {
     } catch (e) {
       debugPrint('Кэш не загрузился: $e');
     }
+    debugPrint('Профиль запросов: $debugProfileInfo');
     await _ensureSessionComplete();
     await _loadBells();
     await refreshAll();

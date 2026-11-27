@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+
 import '../../data/services/epos/auth_service.dart';
 import '../../data/services/epos/epos_response_guard.dart';
 import '../../data/services/epos/retry.dart';
@@ -117,6 +119,7 @@ class ApiClient {
         headers['Profile-Id'] = tokens.profileId;
       }
 
+      debugPrint('${url.path}?${url.query} → pid=${tokens.profileId}');
       final response = await client
           .get(url, headers: headers)
           .timeout(_requestTimeout);

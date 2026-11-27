@@ -34,7 +34,10 @@ extension HomeControllerCache on HomeController {
     }
   }
 
+  /// Диагностика в логе: если activeProfileId пуст, а type=parent —
+  /// выбранного ребёнка потеряли, запросы уйдут родительским pid.
   Future<void> _loadCachedAll() async {
+    debugPrint('Сессия на входе: $debugProfileInfo');
     final profileFut = _profileRepository.loadCached();
     final profileUpdFut = _profileRepository.lastUpdated();
     final yearsFut = _yearsRepository.loadCached();

@@ -12,7 +12,7 @@ class StudentGroupsRepository {
 
   StudentGroupsRepository({StudentGroupsService? service, CacheService? cache})
     : _service = service ?? StudentGroupsService(),
-      _cache = cache ?? CacheService();
+      _cache = cache ?? CacheService(scoped: true);
 
   Future<List<StudentGroup>?> loadCached() async {
     final json = await _cache.loadList(_cacheKey);

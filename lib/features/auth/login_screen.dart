@@ -4,7 +4,7 @@ import '../../core/auth/auth_config.dart';
 import '../../core/theme/theme_controller.dart';
 import '../../widgets/auth/pkce_auth_view.dart';
 import './device_login_screen.dart';
-import '../home/home_screen.dart';
+import './session_gate.dart';
 
 /// Диспатчер входа: по AuthConfig.useDeviceTokenFlow.
 ///
@@ -27,7 +27,7 @@ class LoginScreen extends StatelessWidget {
         return PkceAuthView(
           onSession: (ctx, session) => Navigator.of(ctx).pushReplacement(
             MaterialPageRoute(
-              builder: (_) => HomeScreen(
+              builder: (_) => SessionGate(
                 session: session,
                 themeController: themeController,
               ),
